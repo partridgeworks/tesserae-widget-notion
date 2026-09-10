@@ -11,7 +11,7 @@ from urllib.parse import quote
 from flask import Flask
 from flask.testing import FlaskClient
 
-from tests.fake_notion import DS_ID, TOKEN_A, TOKEN_B, fake_urlopen
+from fake_notion import DS_ID, TOKEN_A, TOKEN_B, fake_urlopen
 
 ACCOUNT_A = "aaaa1111"
 ACCOUNT_B = "bbbb2222"

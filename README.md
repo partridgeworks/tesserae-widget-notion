@@ -5,7 +5,7 @@ Put your Notion tasks and projects on an e-ink panel.
 Two widgets and a shared connection for [Tesserae](https://github.com/dmellok/tesserae),
 the self-hosted e-ink dashboard server.
 
-![Open tasks grouped under project headings](docs/tasks.png)
+![Open tasks grouped under project headings](screenshot-tasks.png)
 
 ## What it does
 
@@ -15,7 +15,7 @@ project. Optionally grouped under a heading per project.
 **Notion, Projects** — active projects with status, target date, owner, and a
 progress bar where your database tracks one.
 
-![Active projects with progress bars](docs/projects.png)
+![Active projects with progress bars](screenshot-projects.png)
 
 **You don't have to reshape your Notion databases to use these.** The widgets
 work out which column holds the status, the due date, the priority and the
@@ -144,8 +144,8 @@ each plugin's own data directory.
 ```sh
 python -m pytest -q          # no token or network needed
 ruff check .
-python tools/shoot.py        # render every widget and size to screenshots/
-python tools/shoot.py --theme dark
+python shoot.py        # render every widget and size to screenshots/
+python shoot.py --theme dark
 ```
 
 Both need a Tesserae checkout for the app itself; the sibling

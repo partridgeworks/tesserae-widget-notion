@@ -6,7 +6,7 @@ in a browser. This boots a real Tesserae with the bundle staged, serves it,
 and screenshots `/_test/render` at xs/sm/md/lg through the same headless
 Chromium the production renderer uses.
 
-    python tools/shoot.py [--out screenshots] [--theme spectra] [--style standard]
+    python shoot.py [--out screenshots] [--theme spectra] [--style standard]
 
 Notion is faked (tests/fake_notion.py), so this needs no token and no
 network. Set TESSERAE_SRC if your Tesserae checkout isn't the sibling
@@ -27,7 +27,7 @@ from unittest.mock import patch
 from urllib.parse import quote
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent
 PLUGIN_FOLDERS = ("notion_core", "notion_tasks", "notion_projects")
 SIZES = ("xs", "sm", "md", "lg")
 # Must match app/composer.py's SIZE_DIMENSIONS so the screenshot viewport is
@@ -40,7 +40,7 @@ TESSERAE_SRC = Path(
 sys.path.insert(0, str(TESSERAE_SRC))
 sys.path.insert(0, str(REPO))
 
-from tests.fake_notion import DS_ID, fake_urlopen  # noqa: E402
+from fake_notion import DS_ID, fake_urlopen  # noqa: E402
 
 
 class _QuietHandler(WSGIRequestHandler):

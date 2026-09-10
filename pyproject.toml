@@ -1,6 +1,12 @@
 # Test configuration only. This repo ships plugin folders, not an installable
 # package: Tesserae loads `notion_core/`, `notion_tasks/` and
 # `notion_projects/` by dropping them into a plugins directory.
+#
+# Everything that is not a plugin folder is kept as a ROOT-LEVEL FILE on
+# purpose. The marketplace installer treats every directory at the root of a
+# bundle tarball as a plugin folder and refuses the install if one has no
+# plugin.json, so a tests/ or docs/ directory here would make the released
+# tarball uninstallable. Same layout as the devref and glances bundles.
 
 [tool.pytest.ini_options]
 testpaths = ["notion_core", "notion_tasks", "notion_projects"]

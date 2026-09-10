@@ -10,8 +10,8 @@ from flask import Flask
 from flask.testing import FlaskClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.fake_notion import DS_ID_B  # noqa: E402
-from tests.helpers import (  # noqa: E402
+from fake_notion import DS_ID_B  # noqa: E402
+from helpers import (  # noqa: E402
     ACCOUNT_B,
     cell_data,
     configure_one_account,
