@@ -1,216 +1,167 @@
-# Notion widgets for Tesserae
+# Notion for Tesserae
 
-Open tasks and active projects from [Notion](https://www.notion.so), rendered
-onto an e-ink panel. For [Tesserae](https://github.com/dmellok/tesserae), the
-self-hosted e-ink dashboard companion.
+Put your Notion tasks and projects on an e-ink panel.
 
-A bundle of three plugin folders:
+Two widgets and a shared connection for [Tesserae](https://github.com/dmellok/tesserae),
+the self-hosted e-ink dashboard server.
 
-| Folder | Kind | What it does |
+![Open tasks grouped under project headings](docs/tasks.png)
+
+## What it does
+
+**Notion, Tasks** — your open tasks, overdue first, with due date, status and
+project. Optionally grouped under a heading per project.
+
+**Notion, Projects** — active projects with status, target date, owner, and a
+progress bar where your database tracks one.
+
+![Active projects with progress bars](docs/projects.png)
+
+**You don't have to reshape your Notion databases to use these.** The widgets
+work out which column holds the status, the due date, the priority and the
+project by looking at column *types*, not names — so a title column called
+"Task", a status called "Stage" and a date called "Whenever" are all found.
+Anything your database doesn't have is simply left out of the display.
+
+## Getting started
+
+Five minutes, and three of them are in Notion.
+
+**1. Create an integration.** Go to
+[notion.so/my-integrations](https://www.notion.so/my-integrations) → *New
+integration*. Name it, pick your workspace, and copy the token — it starts
+with `ntn_`. Read access is all these widgets ever use.
+
+**2. Share your databases with it.** This is the step everyone misses. Open a
+database in Notion → **•••** (top right) → **Connections** → add your
+integration. Do this for every database you want on a panel.
+
+> A database you haven't shared simply won't appear, and Notion gives no error
+> saying why — the API genuinely cannot see it.
+
+**3. Add the token to Tesserae.** Go to **Widgets → Notion Core → admin page**,
+give the account a name (anything you like — "Work", "Personal"), paste the
+token, and Save. The page then lists every database it can see.
+
+**4. Add a widget.** On a dashboard, add a *Notion, Tasks* or *Notion,
+Projects* cell and pick your database from the **Database** dropdown. That's
+it — the columns are detected for you.
+
+## Configuration
+
+Account setup lives on the **Notion Core admin page**. Everything else is
+per-cell, in the normal widget options.
+
+### Notion, Tasks
+
+| Option | Default | What it does |
 |---|---|---|
-| `notion_core` | data | One or more Notion accounts (name + token), database discovery, column detection. No cell of its own — it *is* the admin page. |
-| `notion_tasks` | widget | Open tasks, overdue first, with due date, status and project, optionally grouped under project headings. |
-| `notion_projects` | widget | Active projects with status, target date and a progress bar. |
+| **Database** | — | Which Notion database to read. Required. |
+| **Title** | `Tasks` | Heading shown on the cell. |
+| **Max tasks shown** | 8 | Upper bound; smaller cells show fewer. |
+| **Refresh** | 15 min | How often to re-query Notion. |
+| **Group by** | No grouping | `Project` buckets tasks under a heading per project. |
+| **Show group headings** | on | Off keeps the grouping and ordering but drops the heading rows; each row then shows its own project name instead. |
+| **Show due dates** | on | |
+| **Show project names** | on | |
+| **Show status chips** | on | |
+| **Include completed tasks** | off | A panel is usually for what's left. |
+| **… column** (×5) | auto | Override a detected column. Leave blank unless a guess is wrong. |
 
-## It adapts to your database, you don't adapt to it
+### Notion, Projects
 
-Notion databases are all shaped differently, so these widgets work out the
-schema instead of demanding one. Column **type** is the primary signal and the
-column **name** only breaks ties, which means a title column called "Task",
-a status column called "Stage" and a date column called "Whenever" are all
-found correctly.
+| Option | Default | What it does |
+|---|---|---|
+| **Database** | — | Which Notion database to read. Required. |
+| **Title** | `Projects` | |
+| **Max projects shown** | 6 | |
+| **Refresh** | 15 min | |
+| **Show progress bars** | on | Needs a number, formula or rollup column. |
+| **Show target dates** | on | |
+| **Show owner** | off | |
+| **Include completed projects** | off | |
+| **… column** (×5) | auto | Override a detected column. |
 
-Detected roles: title, status, due date, priority, project, done checkbox,
-assignee, progress. Anything missing is simply not shown — a database with no
-due-date column renders as a plain list rather than an error. If a guess is
-wrong, every role has a per-cell override (*Status column*, *Due date column*,
-…); type the Notion property name exactly. The admin page's *Inspect columns*
-shows what was detected.
+### Overriding a column
 
-**The project column can be multi-valued.** It may be a `relation` pointing at
-several pages, a `multi_select` with several tags ticked, or a plain `select`.
-A row and a group heading each need one label, so the first entry wins, in
-Notion's own order — the order you see in Notion. Relation ids are resolved to
-the related page's title (capped at 24 lookups per render, since each costs a
-request); anything unresolved shows no project rather than a raw UUID.
+If a guess is wrong, type the Notion property name into the matching *…
+column* option — **exactly** as Notion spells it, emoji and all
+(`🎬 Episodes`, not `Episodes`). The admin page's **Inspect columns** link
+lists every column and what was detected, which is the easiest place to copy
+the name from.
 
-## When a column override doesn't match
-
-Type a column name into any *… column* option and it is used verbatim — but
-only if the database really has a column by that name. If it doesn't, the cell
-says so and lists the columns that do exist, rather than quietly falling back
-to an auto-detected column and reading something you never asked for.
-
-Before reporting that, the widget re-reads the schema once. Schemas are cached
-for 15 minutes, and a column added in Notion moments earlier is by far the
-likeliest reason a correct name looks wrong — so the stale-cache case heals
-itself and only a genuine typo produces an error.
-
-This matters more than it sounds. Detection also runs against the cached
-schema, so a stale copy silently changes which column a widget reads: a
-relation column added after the cache was written was invisible, and grouping
-fell back to the first `select` it could see (`Priority`) with nothing said.
-Hence the shorter TTL for schemas than for the database list.
-
-## Grouping tasks by project
-
-*Notion, Tasks* has a **Group by** option, defaulting to **No grouping**. Set
-it to **Project** and the list gains a heading row per project, with that
-group's overdue count on the right.
-
-- Group order follows the most urgent task in each group, so the project
-  needing attention stays at the top of the cell.
-- Tasks with no project collect under **No project**, forced last.
-- The project name drops out of each row's meta — the heading directly above
-  already says it.
-- Headings cost vertical room, so grouped mode uses a smaller row budget and
-  drops the "+ N more" line (the title bar's "4 OPEN" states the same total).
-  A group whose heading would be the last thing to fit is skipped entirely: a
-  heading with nothing under it is worse than no heading.
-- Grouping is ignored at `xs`, where a heading plus one task is the whole cell.
-
-Grouping applies to the tasks that survive the *Max tasks shown* limit, not to
-the whole database — the cell shows what it shows, so grouping anything else
-would advertise groups whose tasks never appear.
-
-## Setup
-
-Everything is configured in one place: the **Notion Core admin page**, at
-**Widgets → Notion Core → admin page** (`/plugins/notion_core/`). There is
-nothing to set under Settings.
-
-1. Create an internal integration at
-   [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy
-   its token (starts with `ntn_` or `secret_`). Read access is all these
-   widgets use.
-2. On the admin page, give the account a **friendly name** and paste the
-   **token**, then Save.
-3. **Share each database with the integration** — this is the step everyone
-   misses. Open the database in Notion, then **••• → Connections** and add
-   your integration. A database that isn't shared does not appear and produces
-   no error; the API simply cannot see it.
-4. Add a *Notion, Tasks* or *Notion, Projects* cell and pick the database from
-   the dropdown.
-
-The admin page doubles as the diagnostic: it lists the databases each account
-can see, and *Inspect columns* shows the detected mapping for one.
+Get it wrong and the cell says so and lists the columns that do exist. It will
+never silently read a different column instead.
 
 ### Several Notion accounts
 
-Use **Add another account** for a second workspace, or a second integration on
-the same one. Each account keeps its own friendly name and token.
+Use **Add another account** on the admin page for a second workspace, or a
+second integration on the same one. Each keeps its own name and token.
 
-There is no per-cell account picker. The **Database** dropdown lists every
-account's databases, prefixed with the account name when more than one is
-configured (`Work · Roadmap`), and picking one selects that account too — a
-Notion data source id belongs to exactly one workspace, so there is nothing
-further to choose. A second control could only ever disagree with the first:
-Tesserae hands `choices()` only the option key, never the cell's other values,
-so the database list cannot be filtered by an account selection.
+There's no separate account picker on a cell. The **Database** dropdown lists
+every account's databases, prefixed with the account name (`Work · Roadmap`),
+and picking one selects that account too — a Notion database belongs to
+exactly one workspace, so there's nothing else to choose.
 
-Removing an account erases its token from disk (both the encrypted and any
-legacy plaintext key) and drops its cached discovery. Cells pointing at it
-fall back to a remaining account rather than breaking.
+Removing an account erases its token and drops its cached data. Cells pointing
+at it fall back to another account rather than breaking.
 
-### Upgrading from 0.1.x
+## Troubleshooting
 
-Nothing to do. A single-token install is read as one account named "Notion" and
-keeps working untouched; the old value is only rewritten into the new shape
-when you next save the admin form. Placed cells keep rendering throughout.
+| What you see | Why | Fix |
+|---|---|---|
+| Database dropdown is empty | Nothing shared with the integration | Notion → database → ••• → Connections → add it, then **Refresh from Notion** |
+| One database missing from the list | Not shared, or the list is cached (1 hour) | Share it, then **Refresh from Notion** |
+| *"Notion rejected the integration token"* | Wrong or revoked token | Copy it again from notion.so/my-integrations and re-save |
+| *"Notion can't see that database"* | Not shared with **this** account's integration | Share it, or pick a database belonging to an account that can see it |
+| *"This database has no column called …"* | Typo in a column override | Copy the exact name from **Inspect columns** — emoji included |
+| Grouping uses the wrong column | A column added very recently | Self-corrects within 15 minutes; **Refresh from Notion** to force it |
+| *"Your stored Notion token can no longer be decrypted"* | `TESSERAE_SECRET_KEY` changed | Re-enter the token on the admin page |
+| Everything shows "No project" | The project column is a relation to a database you haven't shared | Share the *related* database too, so its page titles can be read |
 
-## API version
+## Good to know
 
-Built against `Notion-Version: 2025-09-03`, where a database contains one or
-more *data sources* and queries address the data source
-(`POST /v1/data_sources/{id}/query`). The older `/v1/databases/{id}/query` path
-is deprecated and breaks as soon as a database gains a second source, so this
-bundle only speaks the new shape. The header is overridable in Notion Core's
-settings if Notion ever tells you otherwise.
+**Notion API version.** Built for `Notion-Version: 2025-09-03`, where a
+database contains one or more *data sources*. Older versions can't query a
+multi-source database. There's an override on the admin page if you ever need
+one; leave it blank.
 
-## What it fetches
+**Multi-valued project columns.** A project column can be a `relation` with
+several targets, or a `multi_select` with several tags. A row and a heading
+each need one label, so the first entry wins, in Notion's own order.
 
-Both widgets query up to 500 rows (5 pages of 100) per refresh, sorted
-server-side by due date where the database has one, then filter and sort
-locally. Completion state is filtered in Python rather than through a Notion
-filter, because "done" can live in a `status`, a `select` or a `checkbox` and
-building the right filter for each is far more fragile than dropping rows
-afterwards.
+**What it fetches.** Up to 500 rows per refresh, sorted by due date where the
+database has one. Database lists are cached for an hour, column layouts for
+15 minutes, results for your chosen Refresh interval.
 
-Results are cached in the plugin's data directory for the cell's Refresh
-interval (5 / 15 / 60 min), and the database list and schema for an hour each.
-Relation-valued project columns cost one extra request per distinct related
-page, capped at 12.
-
-## Networking and settings
-
-```jsonc
-"requires": ["network:api.notion.com", "settings:plugin/notion_core"]
-```
-
-`api.notion.com` is the only host any of these three contact, and Tesserae
-enforces that at the socket layer.
-
-Tokens are written through the settings store's secret convention, so each
-lands encrypted under `account_<id>_token_secret` and disk-grepping shows which
-values are sensitive. The admin form renders token inputs **empty**: a blank
-one means "keep what's stored", so a stored secret is never round-tripped
-through the browser, and renaming an account cannot wipe its token. Nothing is
-written outside each plugin's own `data_dir`.
-
-On-disk shape under `plugins.notion_core`:
-
-```
-accounts_json              '[{"id": "a1b2c3d4", "name": "Work"}]'
-account_<id>_token_secret  encrypted per-account token
-notion_version             optional Notion-Version override ("" = default)
-api_token_secret           0.1.x installs, read-only
-```
+**Network and privacy.** `api.notion.com` is the only host these widgets ever
+contact, and Tesserae enforces that at the socket layer. Tokens are stored
+encrypted and are never sent back to the browser. Nothing is written outside
+each plugin's own data directory.
 
 ## Development
 
 ```sh
-# Render every widget and variant at every size against a fake Notion.
-# No token, no network. Includes the grouped task list.
-python tools/shoot.py            # -> screenshots/<plugin><variant>-<size>.png
-python tools/shoot.py --theme dark
-
-# Smoke tests
-python -m pytest -q
+python -m pytest -q          # no token or network needed
 ruff check .
+python tools/shoot.py        # render every widget and size to screenshots/
+python tools/shoot.py --theme dark
 ```
 
-Both need a Tesserae checkout for the app itself. The sibling
-`../../tesserae-upstream-fork` is assumed; set `TESSERAE_SRC` otherwise. Tests
-skip rather than fail when no checkout is found.
-
-Deploy to the LAN server with
-`~/Source/Repos/tesserae/scripts/deploy-widget-wyse1.sh` — see
-[docs/developing-widgets.md](../../docs/developing-widgets.md).
+Both need a Tesserae checkout for the app itself; the sibling
+`../../tesserae-upstream-fork` is assumed, or set `TESSERAE_SRC`.
 
 ## Status
 
-Pre-1.0 and unpublished. Not in the
-[community catalog](https://github.com/dmellok/tesserae-widgets) yet — no
-Notion widget exists there, so it is a candidate.
-
-**Verified against a fake Notion API:** renders at xs/sm/md/lg in light and
-dark, grouped and ungrouped; multi-valued project columns (`multi_select` and
-`relation`) resolve to one label; two accounts keep separate tokens; a 0.1.x
-single-token install still renders; removing an account erases its token.
-58 tests.
-
-**Verified against a real workspace:** database discovery, column detection,
-task/project rendering, two accounts side by side, and grouping by a
-multi-valued `relation` column (an emoji-named "🎬 Episodes" relation grouping
-into per-episode headings).
+Pre-1.0. Verified against a real Notion workspace: database discovery, column
+detection, two accounts side by side, and grouping by an emoji-named
+`relation` column.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
-Tesserae itself is AGPL-3.0-or-later, and MIT is compatible with it: combine
-this widget into a Tesserae deployment and the combined work is AGPL, while
-these files stay reusable under MIT. The catalog
-[accepts permissive licences](https://docs.tesserae.ink/dev/publishing-a-widget/)
-on exactly that basis. Nothing here derives from Tesserae's source — the
-plugin code imports only the standard library and Flask.
+Tesserae itself is AGPL-3.0-or-later, and MIT is compatible with it: combined
+into a Tesserae deployment the whole is AGPL, while these files stay reusable
+under MIT. Nothing here derives from Tesserae's source; the plugin code
+imports only the standard library and Flask.

@@ -96,6 +96,11 @@ def main() -> int:
             variants = [
                 ("notion_tasks", {}, ""),
                 ("notion_tasks", {"group_by": "project"}, "-grouped"),
+                (
+                    "notion_tasks",
+                    {"group_by": "project", "show_group_header": False},
+                    "-grouped-noheads",
+                ),
                 ("notion_projects", {}, ""),
             ]
             for plugin, extra, suffix in variants:

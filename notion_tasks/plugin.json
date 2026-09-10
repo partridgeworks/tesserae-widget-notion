@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "kind": "widget",
   "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
@@ -96,6 +96,13 @@
         }
       ],
       "help": "Group tasks under a header row per project, using the Project column (auto-detected, or whatever the Project column option names). Tasks with no project collect under 'No project', last."
+    },
+    {
+      "name": "show_group_header",
+      "type": "boolean",
+      "label": "Show group headings",
+      "default": true,
+      "help": "Only applies when Group by is set to Project. Turn it off to keep tasks bucketed and ordered by project without heading rows \u2014 each row then shows its own project name instead."
     },
     {
       "name": "show_due",

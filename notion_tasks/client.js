@@ -114,6 +114,11 @@ export default function render(shadow, ctx) {
   // explains. The server only sends `groups` when the option is on AND the
   // database actually has a project column.
   const grouped = Array.isArray(data.groups) && data.groups.length > 0 && size !== "xs";
+  // Headings can be switched off while grouping stays on: the tasks still
+  // arrive bucketed by project and in group order, they just run together as
+  // one list. That is the only combination where a row has to carry its own
+  // project name again, since nothing above it says which group it is in.
+  const withHeaders = grouped && opts.show_group_header !== false;
 
   function taskRow(item, zebra) {
     const dot = PRIO_COLOR[item.priority_rank] || PRIO_COLOR[0];
@@ -130,9 +135,10 @@ export default function render(shadow, ctx) {
           : "";
       meta.push(`<span style="${style}">${dueLabel(item)}</span>`);
     }
-    // Inside a project group the project name is the header directly above,
-    // so repeating it on every row is noise.
-    if (showProject && !grouped && item.project) {
+    // Under a heading the project name is stated directly above, so
+    // repeating it per row is noise. With headings off it is the only thing
+    // that tells the rows apart, so it comes back.
+    if (showProject && !withHeaders && item.project) {
       meta.push(`<span class="u-muted">${escapeHtml(item.project)}</span>`);
     }
 
@@ -148,7 +154,9 @@ export default function render(shadow, ctx) {
   }
 
   const all = Array.isArray(data.items) ? data.items : [];
-  const budget = (grouped ? GROUPED_MAX_ROWS[size] : MAX_ROWS[size]) ?? all.length;
+  // Only headings shrink the budget; grouping without them fits the same
+  // number of rows as an ungrouped list, because that is what it is.
+  const budget = (withHeaders ? GROUPED_MAX_ROWS[size] : MAX_ROWS[size]) ?? all.length;
   let rows = "";
   // Rows drawn, headers included: what the budget spends.
   let painted = 0;
@@ -163,15 +171,24 @@ export default function render(shadow, ctx) {
     const chunks = [];
     for (const group of data.groups) {
       const groupItems = Array.isArray(group.items) ? group.items : [];
-      if (!groupItems.length || painted + 2 > budget) break;
-      chunks.push(`
-        <div class="group-head">
-          <span class="group-name">${escapeHtml(group.name)}</span>
-          ${group.overdue_count > 0
-            ? `<span class="group-late">${group.overdue_count} late</span>`
-            : ""}
-        </div>`);
-      painted += 1;
+      if (!groupItems.length) continue;
+      if (withHeaders) {
+        // A heading costs a row out of the same budget the tasks draw from,
+        // so a small cell shows fewer tasks rather than overflowing. A group
+        // whose heading would be the last thing to fit is skipped entirely:
+        // a project heading with nothing under it is worse than no heading.
+        if (painted + 2 > budget) break;
+        chunks.push(`
+          <div class="group-head">
+            <span class="group-name">${escapeHtml(group.name)}</span>
+            ${group.overdue_count > 0
+              ? `<span class="group-late">${group.overdue_count} late</span>`
+              : ""}
+          </div>`);
+        painted += 1;
+      } else if (painted >= budget) {
+        break;
+      }
       for (const item of groupItems) {
         if (painted >= budget) break;
         chunks.push(taskRow(item, painted % 2 === 1));
@@ -190,10 +207,11 @@ export default function render(shadow, ctx) {
   // Counted against every open task, not just the ones the server sent, so a
   // cell whose `limit` is below the real total still says so.
   const hidden = Math.max(0, total - drawnTasks);
-  // Grouped mode omits the "+ N more" row. Headers already spend the vertical
+  // Headed mode omits the "+ N more" row: headings already spend the vertical
   // budget, and at md the extra line fell outside the cell — while the title
-  // meta ("4 OPEN") states the same total anyway, so nothing is lost.
-  const more = hidden > 0 && !grouped
+  // meta ("4 OPEN") states the same total anyway, so nothing is lost. Without
+  // headings there is room for it again.
+  const more = hidden > 0 && !withHeaders
     ? `<div class="list-row"><span class="u-muted" style="font-size:var(--fs-caption)">+ ${hidden} more</span></div>`
     : "";
 

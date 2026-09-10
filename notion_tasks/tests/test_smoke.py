@@ -258,3 +258,14 @@ def test_an_override_naming_no_real_column_says_so(
     data = cell_data(render(client, PLUGIN, "lg", project_prop="Epsiodes"))
     assert "no column called 'Epsiodes'" in data["error"]
     assert "'Project'" in data["error"]
+
+
+def test_group_headings_can_be_switched_off(app: Flask, client: FlaskClient) -> None:
+    """Headings off must not switch grouping off: the server still buckets by
+    project, so the rows stay in group order. Only the heading rows go."""
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", group_by="project", show_group_header=False)
+    )
+    assert not data.get("error"), data.get("error")
+    assert [g["name"] for g in data["groups"]][0] == "Tesserae"
