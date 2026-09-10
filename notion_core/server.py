@@ -216,24 +216,36 @@ def config_error() -> str | None:
 def resolve_account(options: dict[str, Any]) -> tuple[str, str | None]:
     """Which account a cell reads from → ``(account_id, error)``.
 
-    Order: the cell's explicit choice, then the database's owner, then the
-    sole configured account. A choice that no longer exists falls back
-    rather than failing, so deleting an account degrades placed cells to a
-    remaining one instead of breaking them.
+    **The selected database decides.** A Notion data source id belongs to
+    exactly one workspace, so once a database is picked there is nothing left
+    to infer — and the host resolves the two dropdowns independently, so a
+    cell really can hold an account from one workspace and a database from
+    another (`choices()` is handed only the option key, never the cell's
+    other values, so the database list cannot be filtered to the chosen
+    account).
+
+    Letting the account option win instead was a bug: the query went out with
+    the wrong token, Notion returned 404 ``object_not_found``, and the cell
+    told the operator to share a database they had already shared.
+
+    Order, therefore: the database's owner, then the cell's explicit choice
+    (which still decides while no database is selected yet, and covers a
+    database whose discovery cache has not caught up), then the sole
+    configured account. A choice that no longer exists falls back rather than
+    failing, so deleting an account degrades placed cells to a remaining one
+    instead of breaking them.
     """
     usable = configured_accounts()
     if not usable:
         return "", config_error() or ERR_NO_ACCOUNTS
-    chosen = str(options.get("account") or "").strip()
-    if chosen and any(a["id"] == chosen for a in usable):
-        return chosen, None
-    # The account picker is hidden on single-account installs and can also
-    # disagree with the database picker (the two dropdowns are resolved
-    # independently, see `_data_source_choices`). The database is the
-    # unambiguous signal, so let it decide when the account doesn't.
+
     owner = account_for_data_source(str(options.get("data_source") or "").strip())
     if owner:
         return owner, None
+
+    chosen = str(options.get("account") or "").strip()
+    if chosen and any(a["id"] == chosen for a in usable):
+        return chosen, None
     return usable[0]["id"], None
 
 

@@ -10,7 +10,9 @@ token on the request decides which one answers, exactly as Notion does.
 
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 from typing import Any
 from urllib.request import Request
 
@@ -149,6 +151,14 @@ class _Resp:
         return False
 
 
+def _not_found(url: str) -> urllib.error.HTTPError:
+    """What Notion really returns when a token asks for a database in another
+    workspace: 404 with ``object_not_found``, indistinguishable from a
+    database that was simply never shared with the integration."""
+    body = json.dumps({"object": "error", "code": "object_not_found"}).encode()
+    return urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(body))
+
+
 def fake_urlopen(req: Request, *args: object, **kwargs: object) -> _Resp:
     url = req.full_url if isinstance(req, Request) else str(req)
     method = req.get_method() if isinstance(req, Request) else "GET"
@@ -158,13 +168,22 @@ def fake_urlopen(req: Request, *args: object, **kwargs: object) -> _Resp:
     if url.endswith("/v1/search"):
         results = SEARCH_B if workspace_b else SEARCH_A
         return _Resp({"object": "list", "results": results, "has_more": False})
-    if method == "GET" and "/v1/data_sources/" in url:
-        schema = SCHEMA_B if workspace_b else SCHEMA
-        ds_id = DS_ID_B if workspace_b else DS_ID
-        return _Resp({"object": "data_source", "id": ds_id, "properties": schema})
-    if method == "POST" and url.endswith("/query"):
-        pages = PAGES_B if workspace_b else PAGES
-        return _Resp({"object": "list", "results": pages, "has_more": False})
+
+    if "/v1/data_sources/" in url:
+        # A token only sees its own workspace. Asking workspace B for
+        # workspace A's data source 404s, exactly as the real API does --
+        # which is what makes an account/database mismatch a real failure
+        # rather than a cosmetic one.
+        owned = DS_ID_B if workspace_b else DS_ID
+        if owned not in url:
+            raise _not_found(url)
+        if method == "GET":
+            schema = SCHEMA_B if workspace_b else SCHEMA
+            return _Resp({"object": "data_source", "id": owned, "properties": schema})
+        if url.endswith("/query"):
+            pages = PAGES_B if workspace_b else PAGES
+            return _Resp({"object": "list", "results": pages, "has_more": False})
+
     if "/v1/pages/" in url:
         if RELATED_PAGE_ID in url:
             return _Resp(RELATED_PAGE)

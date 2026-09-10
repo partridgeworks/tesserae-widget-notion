@@ -190,3 +190,20 @@ def test_account_choices_hint_when_there_is_only_one(app: Flask) -> None:
     assert len(options) == 1
     assert "only account" in options[0]["label"]
     assert options[0]["value"] == ACCOUNT_A
+
+
+def test_mismatched_account_and_database_still_renders(
+    app: Flask, client: FlaskClient
+) -> None:
+    """The two pickers are resolved independently by the host, so a cell can
+    hold an account from one workspace and a database from another. A Notion
+    data source id belongs to exactly one workspace, so the database is the
+    unambiguous signal and must win -- otherwise the query 404s and the cell
+    blames the user for not sharing a database they already shared."""
+    configure_two_accounts(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", account=ACCOUNT_A, data_source=DS_ID_B)
+    )
+    assert not data.get("error"), data.get("error")
+    assert data["account"] == "Personal"
+    assert data["items"][0]["title"] == "Second workspace task"

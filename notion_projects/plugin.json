@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Projects",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "kind": "widget",
   "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-kanban",
@@ -27,7 +27,7 @@
       "label": "Notion account",
       "default": "",
       "choices_from": "accounts",
-      "help": "Which configured Notion account to read from. With only one account set up there is nothing to choose and it is used automatically."
+      "help": "Which account to read from until a database is chosen. Once you pick a database the account follows it automatically \u2014 a Notion database belongs to exactly one workspace \u2014 so this and the Database list cannot end up contradicting each other."
     },
     {
       "name": "data_source",
@@ -35,7 +35,7 @@
       "label": "Database",
       "default": "",
       "choices_from": "data_sources",
-      "help": "Every Notion database shared with your integration. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
+      "help": "Every database your Notion accounts can see. With more than one account each entry is prefixed by its account name, and picking one selects that account too. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
     },
     {
       "name": "title",
