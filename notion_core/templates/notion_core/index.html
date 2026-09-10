@@ -1,0 +1,83 @@
+{% extends "_base.html" %}
+{% from "_components.html" import card_head, button, empty_state %}
+{% block title %}Notion Core, Tesserae{% endblock %}
+
+{% block main %}
+<div class="page-head">
+  <h1><i class="ph-bold ph-notion-logo" aria-hidden="true"></i> Notion Core</h1>
+  <p class="page-blurb">Which Notion databases this server can see, and which columns the Notion widgets will read from each one. Setting this up fails in two ways that look identical from the cell editor &mdash; a bad token, and a good token on a database nobody shared with the integration &mdash; so this page tells them apart.</p>
+</div>
+
+<section class="card">
+  {{ card_head('Connection', icon_name='plug', level=2) }}
+  {% if error %}
+  <p class="field-help" role="alert"><i class="ph-bold ph-warning-circle" aria-hidden="true"></i> {{ error }}</p>
+  {% endif %}
+  {% if configured %}
+  <p class="field-help">
+    Token stored. Speaking <code>Notion-Version: {{ notion_version }}</code>.
+    {{ data_sources | length }} database{{ '' if data_sources | length == 1 else 's' }} visible.
+  </p>
+  {% else %}
+  <p class="field-help">
+    No token yet. Create an internal integration at
+    <a href="https://www.notion.so/my-integrations" rel="noreferrer">notion.so/my-integrations</a>,
+    then paste its token under <strong>Settings &rarr; Widgets &rarr; Notion Core</strong>.
+  </p>
+  {% endif %}
+  <div class="actions">
+    <a class="btn" href="{{ url_for('notion_core_admin.index', refresh='1') }}">
+      <i class="ph-bold ph-arrows-clockwise" aria-hidden="true"></i> Refresh from Notion
+    </a>
+  </div>
+</section>
+
+<section class="card">
+  {{ card_head('Databases', icon_name='database', level=2) }}
+  {% if data_sources %}
+  <table class="table">
+    <thead><tr><th>Name</th><th>Data source ID</th><th></th></tr></thead>
+    <tbody>
+      {% for ds in data_sources %}
+      <tr>
+        <td>{{ ds.title }}</td>
+        <td><code>{{ ds.id }}</code></td>
+        <td><a href="{{ url_for('notion_core_admin.index', inspect=ds.id) }}">Inspect columns</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="field-help">A database missing from this list has not been shared with the integration. Open it in Notion, then <strong>&bull;&bull;&bull; &rarr; Connections</strong> and add yours. The list is cached for an hour; use Refresh after sharing something new.</p>
+  {% elif configured and not error %}
+  {{ empty_state('No databases shared with the integration yet', icon='database', hint='Open a database in Notion, then ••• → Connections → add your integration, and hit Refresh.') }}
+  {% endif %}
+</section>
+
+{% if detail %}
+<section class="card">
+  {{ card_head('Columns in ' ~ detail.title, icon_name='columns', level=2) }}
+  <p class="field-help">What the widgets detected. Any of these can be overridden per cell with the matching <em>&hellip; column</em> option if the guess is wrong.</p>
+  <table class="table">
+    <thead><tr><th>Role</th><th>Detected column</th></tr></thead>
+    <tbody>
+      {% for role, name in detail.detected.items() %}
+      <tr>
+        <td>{{ role }}</td>
+        <td>{% if name %}<code>{{ name }}</code>{% else %}<span class="u-muted">not found</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>All columns</h3>
+  <table class="table">
+    <thead><tr><th>Property</th><th>Type</th></tr></thead>
+    <tbody>
+      {% for name, type_name in detail.properties %}
+      <tr><td><code>{{ name }}</code></td><td>{{ type_name }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

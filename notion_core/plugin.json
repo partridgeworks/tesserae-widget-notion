@@ -1,0 +1,28 @@
+{
+  "tesserae_compat": "1.x",
+  "name": "Notion Core",
+  "version": "0.1.0",
+  "kind": "data",
+  "description": "Shared Notion connection for the notion_* widget family. Add an internal integration token once here (notion.so/my-integrations), share your databases with it, and every Notion widget reads from them. Has an admin page that lists the databases the integration can see and the property mapping each widget will use. No cell of its own.",
+  "icon": "ph-notion-logo",
+  "supports": { "sizes": ["xs", "sm", "md", "lg"] },
+  "requires": ["network:api.notion.com", "settings:plugin"],
+  "settings": [
+    {
+      "name": "api_token",
+      "type": "string",
+      "label": "Notion integration token",
+      "help": "Create an internal integration at notion.so/my-integrations and paste its token (starts with ntn_ or secret_). Read access is all these widgets use. Each database also has to be shared with the integration: open it in Notion, then ••• → Connections → add yours.",
+      "secret": true,
+      "default": ""
+    },
+    {
+      "name": "notion_version",
+      "type": "string",
+      "label": "Notion-Version header (advanced)",
+      "help": "Leave blank unless Notion tells you otherwise. Defaults to 2025-09-03, the version where databases split into data sources; earlier versions can't query multi-source databases.",
+      "default": ""
+    }
+  ],
+  "render": { "needs_network": true }
+}

@@ -1,0 +1,126 @@
+{
+  "tesserae_compat": "1.x",
+  "name": "Notion, Tasks",
+  "version": "0.1.0",
+  "kind": "widget",
+  "description": "Open tasks from any Notion database, overdue first, with due dates, status and project. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Requires the Notion Core plugin.",
+  "icon": "ph-list-checks",
+  "supports": { "sizes": ["xs", "sm", "md", "lg"] },
+  "requires": [
+    "network:api.notion.com",
+    "settings:plugin/notion_core"
+  ],
+  "render": { "needs_network": false },
+  "cell_options": [
+    {
+      "name": "data_source",
+      "type": "select",
+      "label": "Database",
+      "default": "",
+      "choices_from": "data_sources",
+      "help": "Every Notion database shared with your integration. Nothing listed? Open the database in Notion, then ••• → Connections → add your integration."
+    },
+    {
+      "name": "title",
+      "type": "string",
+      "label": "Title",
+      "placeholder": "Tasks",
+      "default": "Tasks"
+    },
+    {
+      "name": "limit",
+      "type": "select",
+      "label": "Max tasks shown",
+      "default": "8",
+      "choices": [
+        { "value": "5", "label": "5" },
+        { "value": "8", "label": "8" },
+        { "value": "12", "label": "12" },
+        { "value": "20", "label": "20" }
+      ]
+    },
+    {
+      "name": "refresh_min",
+      "type": "select",
+      "label": "Refresh",
+      "default": "15",
+      "choices": [
+        { "value": "5", "label": "Every 5 min" },
+        { "value": "15", "label": "Every 15 min" },
+        { "value": "60", "label": "Hourly" }
+      ]
+    },
+    { "name": "show_due", "type": "boolean", "label": "Show due dates", "default": true },
+    { "name": "show_project", "type": "boolean", "label": "Show project names", "default": true },
+    { "name": "show_status", "type": "boolean", "label": "Show status chips", "default": true },
+    {
+      "name": "show_completed",
+      "type": "boolean",
+      "label": "Include completed tasks",
+      "default": false,
+      "help": "Off by default: a wall panel is for what's left, not what's finished."
+    },
+    {
+      "name": "status_prop",
+      "type": "string",
+      "label": "Status column (blank = auto-detect)",
+      "default": "",
+      "help": "Only needed if auto-detection picks the wrong column. Type the Notion property name exactly. See Settings → Widgets → Notion Core for what was detected."
+    },
+    {
+      "name": "due_prop",
+      "type": "string",
+      "label": "Due date column (blank = auto-detect)",
+      "default": ""
+    },
+    {
+      "name": "priority_prop",
+      "type": "string",
+      "label": "Priority column (blank = auto-detect)",
+      "default": ""
+    },
+    {
+      "name": "project_prop",
+      "type": "string",
+      "label": "Project column (blank = auto-detect)",
+      "default": ""
+    },
+    {
+      "name": "done_prop",
+      "type": "string",
+      "label": "Done checkbox column (blank = auto-detect)",
+      "default": ""
+    }
+  ],
+  "fragments": [
+    { "id": "full", "label": "Task list", "w": 300, "h": 220, "icon": "ph-list-checks" },
+    { "id": "count", "label": "Open count", "w": 120, "h": 120, "icon": "ph-number-circle-three" }
+  ],
+  "data_schema": {
+    "fields": [
+      { "name": "title", "type": "str", "label": "Title" },
+      { "name": "total", "type": "num", "label": "Open tasks" },
+      { "name": "overdue_count", "type": "num", "label": "Overdue tasks" },
+      { "name": "today_count", "type": "num", "label": "Due today" },
+      { "name": "items", "type": "arr", "label": "Tasks" }
+    ],
+    "sample": {
+      "title": "Tasks",
+      "items": [
+        { "title": "Fix the panel refresh loop", "status": "In progress", "done": false, "due_date": "2026-09-08", "overdue": true, "today": false, "project": "Tesserae", "assignee": "Carl", "priority": "High", "priority_rank": 3, "url": "" },
+        { "title": "Write the Notion widget README", "status": "To do", "done": false, "due_date": "2026-09-10", "overdue": false, "today": true, "project": "Tesserae", "assignee": "", "priority": "Medium", "priority_rank": 2, "url": "" },
+        { "title": "Order the e-ink frame", "status": "To do", "done": false, "due_date": "2026-09-14", "overdue": false, "today": false, "project": "Home", "assignee": "", "priority": "Low", "priority_rank": 1, "url": "" },
+        { "title": "Renew the domain", "status": "To do", "done": false, "due_date": "", "overdue": false, "today": false, "project": "Life admin", "assignee": "", "priority": "", "priority_rank": 0, "url": "" }
+      ],
+      "total": 4,
+      "shown": 4,
+      "overdue_count": 1,
+      "today_count": 1,
+      "empty": false,
+      "has_due": true,
+      "has_project": true,
+      "has_status": true,
+      "fetched_at": 1757500000
+    }
+  }
+}
