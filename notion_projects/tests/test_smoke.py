@@ -2,40 +2,32 @@
 
 from __future__ import annotations
 
-import json
 import sys
-from html import unescape
 from pathlib import Path
-from unittest.mock import patch
-from urllib.parse import quote
 
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.fake_notion import DS_ID, fake_urlopen  # noqa: E402
+from tests.fake_notion import DS_ID_B  # noqa: E402
+from tests.helpers import (  # noqa: E402
+    ACCOUNT_B,
+    cell_data,
+    configure_one_account,
+    configure_two_accounts,
+    render,
+)
 
 PLUGIN = "notion_projects"
 
 
 def _configure(app: Flask) -> None:
-    app.config["SETTINGS_STORE"].patch_section(
-        "plugins", {"notion_core": {"api_token": "ntn_test-token"}}
-    )
+    configure_one_account(app)
 
 
 def _render(client: FlaskClient, size: str, **opts: object) -> str:
-    options: dict[str, object] = {"data_source": DS_ID}
-    options.update(opts)
-    query = (
-        f"/_test/render?plugin={PLUGIN}&size={size}"
-        f"&opts={quote(json.dumps(options))}"
-    )
-    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-        resp = client.get(query)
-    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
-    return unescape(resp.get_data(as_text=True))
+    return render(client, PLUGIN, size, **opts)
 
 
 @pytest.mark.parametrize("size", ["xs", "sm", "md", "lg"])
@@ -67,3 +59,11 @@ def test_missing_token_renders_a_setup_message_not_a_crash(
     body = _render(client, "md")
     assert f'data-plugin="{PLUGIN}"' in body
     assert "Notion" in body
+
+
+def test_account_option_selects_the_right_workspace(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_two_accounts(app)
+    data = cell_data(_render(client, "lg", account=ACCOUNT_B, data_source=DS_ID_B))
+    assert data["account"] == "Personal"

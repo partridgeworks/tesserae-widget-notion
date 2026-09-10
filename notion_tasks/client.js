@@ -21,6 +21,11 @@ const PRIO_COLOR = {
 
 const MAX_ROWS = { xs: 2, sm: 5, md: 8, lg: 20 };
 
+// Grouped mode fits fewer rows: a header is shorter than a task row but not
+// free, and counting it as a whole row still overflowed `md`. These are the
+// measured budgets, header rows included.
+const GROUPED_MAX_ROWS = { xs: 2, sm: 4, md: 6, lg: 17 };
+
 // Meta columns compete with the task title for the same row. Each size keeps
 // only what still leaves the title readable: at xs the title is the whole
 // point, so everything else goes rather than eliding "Renew the domain" down
@@ -104,11 +109,13 @@ export default function render(shadow, ctx) {
   const showDue = opts.show_due !== false && data.has_due !== false && room.due;
   const showProject = opts.show_project !== false && data.has_project !== false && room.project;
   const showStatus = opts.show_status !== false && data.has_status !== false && room.status;
+  // Grouping needs headers, and headers need vertical room; at xs a header
+  // plus one task is the whole cell, so grouping there costs more than it
+  // explains. The server only sends `groups` when the option is on AND the
+  // database actually has a project column.
+  const grouped = Array.isArray(data.groups) && data.groups.length > 0 && size !== "xs";
 
-  const all = Array.isArray(data.items) ? data.items : [];
-  const items = all.slice(0, MAX_ROWS[size] ?? all.length);
-
-  const rows = items.map((item, i) => {
+  function taskRow(item, zebra) {
     const dot = PRIO_COLOR[item.priority_rank] || PRIO_COLOR[0];
     const meta = [];
 
@@ -123,23 +130,70 @@ export default function render(shadow, ctx) {
           : "";
       meta.push(`<span style="${style}">${dueLabel(item)}</span>`);
     }
-    if (showProject && item.project) {
+    // Inside a project group the project name is the header directly above,
+    // so repeating it on every row is noise.
+    if (showProject && !grouped && item.project) {
       meta.push(`<span class="u-muted">${escapeHtml(item.project)}</span>`);
     }
 
     const icon = item.done ? "ph-check-circle" : "ph-circle";
     return `
-      <div class="list-row ${i % 2 ? "is-zebra" : ""}">
+      <div class="list-row ${zebra ? "is-zebra" : ""}">
         <div class="list-lead">
           <i class="ph-bold ${icon}" style="color:${item.done ? "var(--text-muted)" : dot}"></i>
           <span class="list-title" ${item.done ? 'style="color:var(--text-muted)"' : ""}>${escapeHtml(item.title)}</span>
         </div>
         ${meta.length ? `<span class="list-meta">${meta.join(" ")}</span>` : ""}
       </div>`;
-  }).join("");
+  }
 
-  const hidden = total - items.length;
-  const more = hidden > 0
+  const all = Array.isArray(data.items) ? data.items : [];
+  const budget = (grouped ? GROUPED_MAX_ROWS[size] : MAX_ROWS[size]) ?? all.length;
+  let rows = "";
+  // Rows drawn, headers included: what the budget spends.
+  let painted = 0;
+  // Tasks drawn: what "+ N more" counts against.
+  let drawnTasks = 0;
+
+  if (grouped) {
+    // A header costs a row out of the same budget the tasks draw from, so a
+    // small cell shows fewer tasks rather than overflowing. A group whose
+    // header would be the last thing to fit is skipped entirely: a project
+    // heading with nothing under it is worse than no heading.
+    const chunks = [];
+    for (const group of data.groups) {
+      const groupItems = Array.isArray(group.items) ? group.items : [];
+      if (!groupItems.length || painted + 2 > budget) break;
+      chunks.push(`
+        <div class="group-head">
+          <span class="group-name">${escapeHtml(group.name)}</span>
+          ${group.overdue_count > 0
+            ? `<span class="group-late">${group.overdue_count} late</span>`
+            : ""}
+        </div>`);
+      painted += 1;
+      for (const item of groupItems) {
+        if (painted >= budget) break;
+        chunks.push(taskRow(item, painted % 2 === 1));
+        painted += 1;
+        drawnTasks += 1;
+      }
+    }
+    rows = chunks.join("");
+  } else {
+    const items = all.slice(0, budget);
+    painted = items.length;
+    drawnTasks = items.length;
+    rows = items.map((item, i) => taskRow(item, i % 2 === 1)).join("");
+  }
+
+  // Counted against every open task, not just the ones the server sent, so a
+  // cell whose `limit` is below the real total still says so.
+  const hidden = Math.max(0, total - drawnTasks);
+  // Grouped mode omits the "+ N more" row. Headers already spend the vertical
+  // budget, and at md the extra line fell outside the cell — while the title
+  // meta ("4 OPEN") states the same total anyway, so nothing is lost.
+  const more = hidden > 0 && !grouped
     ? `<div class="list-row"><span class="u-muted" style="font-size:var(--fs-caption)">+ ${hidden} more</span></div>`
     : "";
 
@@ -168,6 +222,16 @@ export default function render(shadow, ctx) {
               border-radius: var(--pill-radius, 999px);
               padding: 0 var(--space-1); font-size: var(--fs-caption);
               text-transform: var(--label-transform, none); }
+      /* Headers read as headers through weight, case and colour, not a rule:
+         a 1px line dithers into nothing on Spectra 6. */
+      .group-head { display:flex; align-items:baseline; justify-content:space-between;
+                    gap: var(--space-2); padding: var(--space-1) var(--space-2) 0;
+                    font-size: var(--fs-caption); font-weight: var(--fw-black);
+                    letter-spacing: var(--ls-label);
+                    text-transform: var(--label-transform, uppercase);
+                    color: var(--text-secondary); }
+      .group-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .group-late { flex:0 0 auto; color: var(--accent-1); }
     </style>
     <div class="w size-${size}" data-widget="notion_tasks">
       <div class="w-title">

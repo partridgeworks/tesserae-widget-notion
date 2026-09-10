@@ -1,15 +1,15 @@
 """notion_tasks — open tasks from a Notion data source.
 
-All Notion access goes through the ``notion_core`` sibling (one token, one
-discovery cache, one property-detection pass); this module turns whatever
-schema the user's database happens to have into the flat row shape
-``client.js`` paints.
+All Notion access goes through the ``notion_core`` sibling (credentials for
+every configured account, one discovery cache, one property-detection pass);
+this module turns whatever schema the user's database happens to have into
+the flat row shape ``client.js`` paints.
 
 Never raises: returns ``{"error": "friendly message"}`` so the cell renders
 an error card instead of a stack trace.
 
-Caches ``result_<slug>.json`` in this plugin's ``data_dir``, TTL =
-the cell's Refresh option.
+Caches ``result_<slug>.json`` in this plugin's ``data_dir``, TTL = the cell's
+Refresh option.
 """
 
 from __future__ import annotations
@@ -30,6 +30,9 @@ ERR_NO_CORE = (
     "not just this widget."
 )
 ERR_NO_DATABASE = "Pick a Notion database in this cell's settings."
+
+# Tasks with no project still have to land somewhere when grouping is on.
+NO_PROJECT_LABEL = "No project"
 
 # Notion `select` priorities are free text, so map the names people actually
 # use onto a sortable rank. Anything unrecognised sorts below the named ones
@@ -60,6 +63,8 @@ def choices(name: str) -> list[dict[str, str]]:
 
 
 def _priority_rank(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
     if isinstance(value, (int, float)):
         # A numeric priority column: higher number = more urgent, clamped
         # into the same 0-4 band as the named ranks so both sort together.
@@ -84,41 +89,37 @@ def _priority_label(value: Any) -> str:
 
 
 def _row(
-    page: dict[str, Any],
+    page_obj: dict[str, Any],
     core: Any,
     props: dict[str, str],
     schema_props: dict[str, Any],
-    project_names: dict[str, str],
+    project_kind: str,
+    relation_names: dict[str, str],
     today: str,
 ) -> dict[str, Any]:
-    title = core.page_title(page, schema_props) or "Untitled"
+    title = core.page_title(page_obj, schema_props) or "Untitled"
 
-    status = str(core.prop(page, props["status"]) or "") if props["status"] else ""
-    checkbox = core.prop(page, props["done"]) if props["done"] else None
+    status = str(core.prop(page_obj, props["status"]) or "") if props["status"] else ""
+    checkbox = core.prop(page_obj, props["done"]) if props["done"] else None
     done = core.is_done(status, checkbox)
 
-    due_raw = core.prop(page, props["due"]) if props["due"] else None
+    due_raw = core.prop(page_obj, props["due"]) if props["due"] else None
     due_date = ""
     if isinstance(due_raw, dict):
         due_date = str(due_raw.get("start") or "")[:10]
 
-    project = ""
-    if props["project"]:
-        value = core.prop(page, props["project"])
-        if isinstance(value, list):
-            # A relation gives page ids; resolve to titles where we have them.
-            names = [project_names.get(v, "") for v in value]
-            project = next((n for n in names if n), "")
-        elif value:
-            project = str(value)
+    # Handles every project column shape, including the multi-valued ones:
+    # a multi_select with several tags ticked, or a relation pointing at
+    # several pages. First non-empty entry wins.
+    project = core.project_label(page_obj, props["project"], project_kind, relation_names)
 
     assignee = ""
     if props["assignee"]:
-        people = core.prop(page, props["assignee"])
+        people = core.prop(page_obj, props["assignee"])
         if isinstance(people, list) and people:
             assignee = str(people[0] or "")
 
-    priority_value = core.prop(page, props["priority"]) if props["priority"] else None
+    priority_value = core.prop(page_obj, props["priority"]) if props["priority"] else None
 
     return {
         "title": title,
@@ -131,7 +132,7 @@ def _row(
         "assignee": assignee,
         "priority": _priority_label(priority_value),
         "priority_rank": _priority_rank(priority_value),
-        "url": str(page.get("url") or ""),
+        "url": str(page_obj.get("url") or ""),
     }
 
 
@@ -150,30 +151,28 @@ def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _project_names(core: Any, pages: list[dict[str, Any]], props: dict[str, str]) -> dict[str, str]:
-    """Resolve relation-target page ids to their titles.
+def _group(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bucket tasks by project → ``[{"name", "items", "overdue_count"}]``.
 
-    Only called when the project column is a relation. One extra request per
-    distinct related database would be ideal; in practice the relation points
-    at a single Projects database, and the widget shows a handful of rows, so
-    fetching the related pages individually is capped hard and skipped
-    entirely when it would cost more than a few calls.
+    Group order follows the most urgent task in each group, using the same
+    sort key the flat list uses, so the project needing attention stays at
+    the top of the cell. Tasks with no project collect into one group that
+    is forced last: an unfiled task is the least interesting kind.
     """
-    if not props["project"]:
-        return {}
-    ids: list[str] = []
-    for page in pages:
-        value = core.prop(page, props["project"])
-        if isinstance(value, list):
-            ids.extend(v for v in value if v)
-    unique = list(dict.fromkeys(ids))[:12]
-    names: dict[str, str] = {}
-    for page_id in unique:
-        data, err = core.page(page_id)
-        if err or data is None:
-            continue
-        names[page_id] = core.page_title(data) or ""
-    return names
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        buckets.setdefault(item["project"] or NO_PROJECT_LABEL, []).append(item)
+
+    groups = [
+        {
+            "name": name,
+            "items": rows,
+            "overdue_count": sum(1 for r in rows if r["overdue"]),
+        }
+        for name, rows in buckets.items()
+    ]
+    groups.sort(key=lambda g: (g["name"] == NO_PROJECT_LABEL, _sort_key(g["items"][0])))
+    return groups
 
 
 def fetch(
@@ -185,8 +184,9 @@ def fetch(
     core = _core()
     if core is None:
         return {"error": ERR_NO_CORE, "title": title}
-    if not core.is_configured():
-        return {"error": core.config_error() or "Notion isn't configured.", "title": title}
+    account_id, err = core.resolve_account(options)
+    if err:
+        return {"error": err, "title": title}
     if not ds_id:
         return {"error": ERR_NO_DATABASE, "title": title}
 
@@ -200,12 +200,15 @@ def fetch(
         refresh_min = 15
 
     show_completed = bool(options.get("show_completed"))
+    group_by = str(options.get("group_by") or "none").strip().lower()
 
     data_dir = Path(ctx.get("data_dir") or ".")
     with contextlib.suppress(OSError):
         data_dir.mkdir(parents=True, exist_ok=True)
     overrides = {k: v for k, v in sorted(options.items()) if k.endswith("_prop")}
-    fingerprint = json.dumps([ds_id, limit, show_completed, overrides], sort_keys=True)
+    fingerprint = json.dumps(
+        [account_id, ds_id, limit, show_completed, group_by, overrides], sort_keys=True
+    )
     slug = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
     result_path = data_dir / f"result_{slug}.json"
 
@@ -216,44 +219,53 @@ def fetch(
             cached["title"] = title
             return cached  # type: ignore[no-any-return]
 
-    schema_props, err = core.schema(ds_id)
+    schema_props, err = core.schema(account_id, ds_id)
     if err or schema_props is None:
         return {"error": err or "Couldn't read that database.", "title": title}
     props = core.resolve_props(schema_props, options)
+    project_kind = core.prop_type(schema_props, props["project"])
 
     # Sort server-side by due date when the database has one, so that the
     # capped page walk returns the soonest tasks rather than an arbitrary
     # slice. Completion filtering happens locally: a "done" state can live in
     # a status, a select or a checkbox, and building a Notion filter for the
     # right one is far more fragile than dropping rows after the fact.
-    sorts = (
-        [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
-    )
-    pages, err = core.query(ds_id, sorts=sorts)
+    sorts = [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
+    pages, err = core.query(account_id, ds_id, sorts=sorts)
     if err or pages is None:
         return {"error": err or "Couldn't load tasks from Notion.", "title": title}
 
-    project_names = _project_names(core, pages, props)
+    relation_names = core.relation_titles(account_id, pages, props["project"], project_kind)
     today = date.today().isoformat()
-    items = [_row(p, core, props, schema_props, project_names, today) for p in pages]
+    items = [
+        _row(p, core, props, schema_props, project_kind, relation_names, today) for p in pages
+    ]
     if not show_completed:
         items = [i for i in items if not i["done"]]
     items.sort(key=_sort_key)
+    shown = items[:limit]
 
-    result = {
+    result: dict[str, Any] = {
         "title": title,
-        "items": items[:limit],
+        "items": shown,
         "total": len(items),
-        "shown": min(len(items), limit),
+        "shown": len(shown),
         "overdue_count": sum(1 for i in items if i["overdue"]),
         "today_count": sum(1 for i in items if i["today"]),
         "empty": not items,
         "has_due": bool(props["due"]),
         "has_project": bool(props["project"]),
         "has_status": bool(props["status"]),
+        "group_by": group_by,
+        "account": core.account_name(account_id),
         "detected": props,
         "fetched_at": now,
     }
+    # Group the rows that survived the limit, not the whole set: the cell
+    # shows `shown`, so grouping anything else would advertise groups whose
+    # tasks never appear.
+    if group_by == "project" and props["project"]:
+        result["groups"] = _group(shown)
     with contextlib.suppress(OSError):
         result_path.write_text(json.dumps(result), encoding="utf-8")
     return result

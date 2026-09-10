@@ -92,10 +92,16 @@ def main() -> int:
         # widgets' fetch() runs inside the server we just started here.
         with patch("urllib.request.urlopen", side_effect=fake_urlopen), sync_playwright() as p:
             browser = p.chromium.launch()
-            for plugin in ("notion_tasks", "notion_projects"):
+            # (plugin, extra cell options, filename suffix)
+            variants = [
+                ("notion_tasks", {}, ""),
+                ("notion_tasks", {"group_by": "project"}, "-grouped"),
+                ("notion_projects", {}, ""),
+            ]
+            for plugin, extra, suffix in variants:
                 for size in SIZES:
                     w, h = DIMENSIONS[size]
-                    opts = quote(json.dumps({"data_source": DS_ID}))
+                    opts = quote(json.dumps({"data_source": DS_ID, **extra}))
                     url = (
                         f"{base}/_test/render?plugin={plugin}&size={size}"
                         f"&theme={args.theme}&style={args.style}&opts={opts}"
@@ -119,7 +125,7 @@ def main() -> int:
                         "}",
                         timeout=15000,
                     )
-                    dest = out_dir / f"{plugin}-{size}.png"
+                    dest = out_dir / f"{plugin}{suffix}-{size}.png"
                     page.screenshot(path=str(dest))
                     label = dest.relative_to(REPO) if dest.is_relative_to(REPO) else dest
                     print(f"  {label}  ({w}x{h})")

@@ -1,80 +1,192 @@
-"""notion_tasks smoke tests: renders at every size, against a fake Notion."""
+"""notion_tasks: renders at every size, groups by project, honours accounts."""
 
 from __future__ import annotations
 
-import json
 import sys
 from html import unescape
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import quote
 
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.fake_notion import DS_ID, fake_urlopen  # noqa: E402
+from tests.fake_notion import DS_ID_B, fake_urlopen  # noqa: E402
+from tests.helpers import (  # noqa: E402
+    ACCOUNT_A,
+    ACCOUNT_B,
+    cell_data,
+    configure_legacy_account,
+    configure_one_account,
+    configure_two_accounts,
+    render,
+)
 
 PLUGIN = "notion_tasks"
 
 
-def _configure(app: Flask) -> None:
-    app.config["SETTINGS_STORE"].patch_section(
-        "plugins", {"notion_core": {"api_token": "ntn_test-token"}}
-    )
-
-
-def _render(client: FlaskClient, size: str, **opts: object) -> str:
-    """Render one cell. ``/_test/render`` takes cell options as a single
-    ``?opts=<json>`` blob, not as individual query parameters."""
-    options: dict[str, object] = {"data_source": DS_ID}
-    options.update(opts)
-    query = (
-        f"/_test/render?plugin={PLUGIN}&size={size}"
-        f"&opts={quote(json.dumps(options))}"
-    )
-    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-        resp = client.get(query)
-    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
-    return unescape(resp.get_data(as_text=True))
-
-
 @pytest.mark.parametrize("size", ["xs", "sm", "md", "lg"])
 def test_renders_at_every_size(app: Flask, client: FlaskClient, size: str) -> None:
-    _configure(app)
-    body = _render(client, size)
-    assert f'data-plugin="{PLUGIN}"' in body
+    configure_one_account(app)
+    assert f'data-plugin="{PLUGIN}"' in render(client, PLUGIN, size)
 
 
 def test_shows_task_titles_and_hides_completed(app: Flask, client: FlaskClient) -> None:
-    """The fake set has three open tasks and one Done; the Done one must not
-    reach the cell, and the overdue one must be present."""
-    _configure(app)
-    body = _render(client, "lg")
+    configure_one_account(app)
+    body = render(client, PLUGIN, "lg")
     assert "Fix the panel refresh loop" in body
     assert "Renew the domain" in body
     assert "Ship the deploy script" not in body
 
 
 def test_show_completed_option_includes_done_tasks(app: Flask, client: FlaskClient) -> None:
-    _configure(app)
-    body = _render(client, "lg", show_completed=True)
-    assert "Ship the deploy script" in body
+    configure_one_account(app)
+    assert "Ship the deploy script" in render(client, PLUGIN, "lg", show_completed=True)
 
 
 def test_missing_token_renders_a_setup_message_not_a_crash(
     app: Flask, client: FlaskClient
 ) -> None:
-    """No token configured: the cell should explain itself rather than 500."""
-    body = _render(client, "md")
+    body = render(client, PLUGIN, "md")
     assert f'data-plugin="{PLUGIN}"' in body
     assert "Notion" in body
 
 
 def test_missing_database_option_asks_for_one(app: Flask, client: FlaskClient) -> None:
-    _configure(app)
+    configure_one_account(app)
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         resp = client.get(f"/_test/render?plugin={PLUGIN}&size=md")
     assert resp.status_code == 200
     assert "Pick a Notion database" in unescape(resp.get_data(as_text=True))
+
+
+# ----- multi-valued project column ---------------------------------------
+
+
+def test_multi_select_project_takes_the_first_value(app: Flask, client: FlaskClient) -> None:
+    """The fake task carries TWO projects. The widget must pick one, not
+    stringify the list into "['Tesserae', 'Home lab']"."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg"))
+    row = next(i for i in data["items"] if i["title"] == "Fix the panel refresh loop")
+    assert row["project"] == "Tesserae"
+    assert "[" not in row["project"]
+
+
+def test_relation_project_resolves_to_the_related_page_title(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Workspace B's project column is a relation, so the id has to be
+    resolved to the related page's title."""
+    configure_two_accounts(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", account=ACCOUNT_B, data_source=DS_ID_B)
+    )
+    assert data["items"][0]["project"] == "Migration epic"
+
+
+# ----- grouping ----------------------------------------------------------
+
+
+def test_grouping_is_off_by_default(app: Flask, client: FlaskClient) -> None:
+    configure_one_account(app)
+    assert "groups" not in cell_data(render(client, PLUGIN, "lg"))
+
+
+def test_group_by_project_buckets_and_names_the_groups(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", group_by="project"))
+    names = [g["name"] for g in data["groups"]]
+    assert "Tesserae" in names
+    assert "Life admin" in names
+    # An unfiled task gets its own bucket, forced last.
+    assert names[-1] == "No project"
+    tesserae = next(g for g in data["groups"] if g["name"] == "Tesserae")
+    assert {i["title"] for i in tesserae["items"]} == {
+        "Fix the panel refresh loop",
+        "Write the Notion widget README",
+    }
+    assert tesserae["overdue_count"] == 1
+
+
+def test_group_order_puts_the_most_urgent_project_first(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Group order follows the most urgent task in each group, so the project
+    needing attention stays at the top of the cell. "Tesserae" owns the only
+    overdue task, so it leads."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", group_by="project"))
+    assert data["groups"][0]["name"] == "Tesserae"
+
+    # The header markup itself lives in client.js and only exists once a
+    # browser has run it, so it is verified by tools/shoot.py rather than
+    # here: this response carries the data, not the rendered shadow DOM.
+
+
+def test_grouping_falls_back_when_there_is_no_project_column(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Pointing the project override at a column that doesn't exist must not
+    invent an empty grouping; the flat list still renders."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", group_by="project", project_prop="Nope"))
+    # The override is ignored, so detection still finds the real column.
+    assert data["groups"]
+
+
+# ----- accounts ----------------------------------------------------------
+
+
+def test_account_option_selects_the_right_workspace(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_two_accounts(app)
+    data = cell_data(render(client, PLUGIN, "lg", account=ACCOUNT_B, data_source=DS_ID_B))
+    assert data["account"] == "Personal"
+    assert data["items"][0]["title"] == "Second workspace task"
+
+
+def test_single_account_is_used_without_the_cell_naming_it(
+    app: Flask, client: FlaskClient
+) -> None:
+    """The picker is pointless with one account, so a cell that stores no
+    account at all must still render."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg"))
+    assert data["account"] == "Work"
+    assert not data.get("error")
+
+
+def test_stale_account_id_falls_back_to_the_database_owner(
+    app: Flask, client: FlaskClient
+) -> None:
+    """A cell pointing at a deleted account should degrade to the account
+    that owns its database rather than break."""
+    configure_two_accounts(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", account="deleted-account", data_source=DS_ID_B)
+    )
+    assert data["account"] == "Personal"
+
+
+def test_legacy_single_token_install_still_renders(app: Flask, client: FlaskClient) -> None:
+    """Upgrading from the single-token version must not break placed cells."""
+    configure_legacy_account(app)
+    data = cell_data(render(client, PLUGIN, "lg"))
+    assert data["account"] == "Notion"
+    assert not data.get("error")
+    assert data["items"]
+
+
+def test_account_choices_hint_when_there_is_only_one(app: Flask) -> None:
+    configure_one_account(app)
+    core = app.config["PLUGIN_REGISTRY"].get("notion_core").server_module
+    with app.app_context():
+        options = core.choices("accounts")
+    assert len(options) == 1
+    assert "only account" in options[0]["label"]
+    assert options[0]["value"] == ACCOUNT_A

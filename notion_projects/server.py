@@ -126,8 +126,9 @@ def fetch(
     core = _core()
     if core is None:
         return {"error": ERR_NO_CORE, "title": title}
-    if not core.is_configured():
-        return {"error": core.config_error() or "Notion isn't configured.", "title": title}
+    account_id, err = core.resolve_account(options)
+    if err:
+        return {"error": err, "title": title}
     if not ds_id:
         return {"error": ERR_NO_DATABASE, "title": title}
 
@@ -146,7 +147,9 @@ def fetch(
     with contextlib.suppress(OSError):
         data_dir.mkdir(parents=True, exist_ok=True)
     overrides = {k: v for k, v in sorted(options.items()) if k.endswith("_prop")}
-    fingerprint = json.dumps([ds_id, limit, show_completed, overrides], sort_keys=True)
+    fingerprint = json.dumps(
+        [account_id, ds_id, limit, show_completed, overrides], sort_keys=True
+    )
     slug = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
     result_path = data_dir / f"result_{slug}.json"
 
@@ -157,7 +160,7 @@ def fetch(
             cached["title"] = title
             return cached  # type: ignore[no-any-return]
 
-    schema_props, err = core.schema(ds_id)
+    schema_props, err = core.schema(account_id, ds_id)
     if err or schema_props is None:
         return {"error": err or "Couldn't read that database.", "title": title}
     props = core.resolve_props(schema_props, options)
@@ -165,7 +168,7 @@ def fetch(
     sorts = (
         [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
     )
-    pages, err = core.query(ds_id, sorts=sorts)
+    pages, err = core.query(account_id, ds_id, sorts=sorts)
     if err or pages is None:
         return {"error": err or "Couldn't load projects from Notion.", "title": title}
 
@@ -186,6 +189,7 @@ def fetch(
         "has_due": bool(props["due"]),
         "has_status": bool(props["status"]),
         "has_progress": bool(props["progress"]) and bool(tracked),
+        "account": core.account_name(account_id),
         "avg_progress": (sum(tracked) / len(tracked)) if tracked else None,
         "detected": props,
         "fetched_at": now,

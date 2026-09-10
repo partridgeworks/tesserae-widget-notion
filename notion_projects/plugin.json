@@ -1,24 +1,41 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Projects",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "widget",
-  "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Requires the Notion Core plugin.",
+  "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-kanban",
-  "supports": { "sizes": ["xs", "sm", "md", "lg"] },
+  "supports": {
+    "sizes": [
+      "xs",
+      "sm",
+      "md",
+      "lg"
+    ]
+  },
   "requires": [
     "network:api.notion.com",
     "settings:plugin/notion_core"
   ],
-  "render": { "needs_network": false },
+  "render": {
+    "needs_network": false
+  },
   "cell_options": [
+    {
+      "name": "account",
+      "type": "select",
+      "label": "Notion account",
+      "default": "",
+      "choices_from": "accounts",
+      "help": "Which configured Notion account to read from. With only one account set up there is nothing to choose and it is used automatically."
+    },
     {
       "name": "data_source",
       "type": "select",
       "label": "Database",
       "default": "",
       "choices_from": "data_sources",
-      "help": "Every Notion database shared with your integration. Nothing listed? Open the database in Notion, then ••• → Connections → add your integration."
+      "help": "Every Notion database shared with your integration. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
     },
     {
       "name": "title",
@@ -33,10 +50,22 @@
       "label": "Max projects shown",
       "default": "6",
       "choices": [
-        { "value": "4", "label": "4" },
-        { "value": "6", "label": "6" },
-        { "value": "10", "label": "10" },
-        { "value": "16", "label": "16" }
+        {
+          "value": "4",
+          "label": "4"
+        },
+        {
+          "value": "6",
+          "label": "6"
+        },
+        {
+          "value": "10",
+          "label": "10"
+        },
+        {
+          "value": "16",
+          "label": "16"
+        }
       ]
     },
     {
@@ -45,14 +74,38 @@
       "label": "Refresh",
       "default": "15",
       "choices": [
-        { "value": "5", "label": "Every 5 min" },
-        { "value": "15", "label": "Every 15 min" },
-        { "value": "60", "label": "Hourly" }
+        {
+          "value": "5",
+          "label": "Every 5 min"
+        },
+        {
+          "value": "15",
+          "label": "Every 15 min"
+        },
+        {
+          "value": "60",
+          "label": "Hourly"
+        }
       ]
     },
-    { "name": "show_progress", "type": "boolean", "label": "Show progress bars", "default": true },
-    { "name": "show_due", "type": "boolean", "label": "Show target dates", "default": true },
-    { "name": "show_owner", "type": "boolean", "label": "Show owner", "default": false },
+    {
+      "name": "show_progress",
+      "type": "boolean",
+      "label": "Show progress bars",
+      "default": true
+    },
+    {
+      "name": "show_due",
+      "type": "boolean",
+      "label": "Show target dates",
+      "default": true
+    },
+    {
+      "name": "show_owner",
+      "type": "boolean",
+      "label": "Show owner",
+      "default": false
+    },
     {
       "name": "show_completed",
       "type": "boolean",
@@ -64,7 +117,7 @@
       "type": "string",
       "label": "Status column (blank = auto-detect)",
       "default": "",
-      "help": "Only needed if auto-detection picks the wrong column. Type the Notion property name exactly. See Settings → Widgets → Notion Core for what was detected."
+      "help": "Only needed if auto-detection picks the wrong column. Type the Notion property name exactly. The Notion Core admin page lists every column and what was detected."
     },
     {
       "name": "progress_prop",
@@ -93,23 +146,82 @@
     }
   ],
   "fragments": [
-    { "id": "full", "label": "Project list", "w": 320, "h": 220, "icon": "ph-kanban" },
-    { "id": "count", "label": "Active count", "w": 120, "h": 120, "icon": "ph-briefcase" }
+    {
+      "id": "full",
+      "label": "Project list",
+      "w": 320,
+      "h": 220,
+      "icon": "ph-kanban"
+    },
+    {
+      "id": "count",
+      "label": "Active count",
+      "w": 120,
+      "h": 120,
+      "icon": "ph-briefcase"
+    }
   ],
   "data_schema": {
     "fields": [
-      { "name": "title", "type": "str", "label": "Title" },
-      { "name": "total", "type": "num", "label": "Active projects" },
-      { "name": "overdue_count", "type": "num", "label": "Past target date" },
-      { "name": "avg_progress", "type": "num", "label": "Average progress (0-1)" },
-      { "name": "items", "type": "arr", "label": "Projects" }
+      {
+        "name": "title",
+        "type": "str",
+        "label": "Title"
+      },
+      {
+        "name": "total",
+        "type": "num",
+        "label": "Active projects"
+      },
+      {
+        "name": "overdue_count",
+        "type": "num",
+        "label": "Past target date"
+      },
+      {
+        "name": "avg_progress",
+        "type": "num",
+        "label": "Average progress (0-1)"
+      },
+      {
+        "name": "items",
+        "type": "arr",
+        "label": "Projects"
+      }
     ],
     "sample": {
       "title": "Projects",
       "items": [
-        { "title": "Tesserae panel rollout", "status": "In progress", "done": false, "due_date": "2026-09-08", "overdue": true, "owner": "Carl", "progress": 0.75, "url": "" },
-        { "title": "Notion widget bundle", "status": "In progress", "done": false, "due_date": "2026-09-20", "overdue": false, "owner": "Carl", "progress": 0.4, "url": "" },
-        { "title": "Garden studio", "status": "Planning", "done": false, "due_date": "", "overdue": false, "owner": "", "progress": 0.1, "url": "" }
+        {
+          "title": "Tesserae panel rollout",
+          "status": "In progress",
+          "done": false,
+          "due_date": "2026-09-08",
+          "overdue": true,
+          "owner": "Carl",
+          "progress": 0.75,
+          "url": ""
+        },
+        {
+          "title": "Notion widget bundle",
+          "status": "In progress",
+          "done": false,
+          "due_date": "2026-09-20",
+          "overdue": false,
+          "owner": "Carl",
+          "progress": 0.4,
+          "url": ""
+        },
+        {
+          "title": "Garden studio",
+          "status": "Planning",
+          "done": false,
+          "due_date": "",
+          "overdue": false,
+          "owner": "",
+          "progress": 0.1,
+          "url": ""
+        }
       ],
       "total": 3,
       "shown": 3,
@@ -119,7 +231,8 @@
       "has_status": true,
       "has_progress": true,
       "avg_progress": 0.4166,
-      "fetched_at": 1757500000
+      "fetched_at": 1757500000,
+      "account": "Work"
     }
   }
 }
