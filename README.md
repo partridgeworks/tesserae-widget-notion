@@ -111,4 +111,11 @@ published reference, not from a live call.
 
 ## License
 
-AGPL-3.0-or-later, matching Tesserae. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
+
+Tesserae itself is AGPL-3.0-or-later, and MIT is compatible with it: combine
+this widget into a Tesserae deployment and the combined work is AGPL, while
+these files stay reusable under MIT. The catalog
+[accepts permissive licences](https://docs.tesserae.ink/dev/publishing-a-widget/)
+on exactly that basis. Nothing here derives from Tesserae's source — the
+plugin code imports only the standard library and Flask.
