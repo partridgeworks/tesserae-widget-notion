@@ -269,3 +269,108 @@ def test_group_headings_can_be_switched_off(app: Flask, client: FlaskClient) -> 
     )
     assert not data.get("error"), data.get("error")
     assert [g["name"] for g in data["groups"]][0] == "Tesserae"
+
+
+# ----- filtering ---------------------------------------------------------
+
+
+def test_no_filter_by_default(app: Flask, client: FlaskClient) -> None:
+    """The filter is opt-in: a cell that never set one is unchanged."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg"))
+    titles = {i["title"] for i in data["items"]}
+    assert "Renew the domain" in titles          # assigned to someone else
+    assert data["filtered_by"] == ""
+
+
+def test_filter_me_keeps_only_the_token_owners_rows(
+    app: Flask, client: FlaskClient
+) -> None:
+    """'me' has to resolve to the human who owns the token. Notion accepts the
+    literal string "me" but reads it as the BOT, which is nobody's assignee,
+    so the obvious spelling would silently return nothing."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="me"))
+    titles = {i["title"] for i in data["items"]}
+    assert "Fix the panel refresh loop" in titles
+    assert "Write the Notion widget README" in titles
+    assert "Renew the domain" not in titles      # someone else's
+    assert "Unfiled odd job" not in titles       # unassigned
+    assert data["filtered_by"] == "me"
+
+
+def test_filter_by_the_owners_own_name_works_too(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Typing the owner's name is the same as 'me', and resolves to an id, so
+    it filters server-side rather than by string comparison."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="Carl Partridge"))
+    assert {i["title"] for i in data["items"]} == {
+        "Fix the panel refresh loop",
+        "Write the Notion widget README",
+    }
+    assert data["filter_incomplete"] is False
+
+
+def test_filter_by_another_persons_name_matches_locally(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Nobody else's name can be resolved to an id (listing users is forbidden
+    to personal access tokens), so it falls back to matching the rendered
+    names — which still has to work."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="Someone Else"))
+    assert {i["title"] for i in data["items"]} == {"Renew the domain"}
+
+
+def test_filter_columns_are_ored(app: Flask, client: FlaskClient) -> None:
+    """Two columns named, a row kept if EITHER matches. Task name carries the
+    text, Owner carries the person, and each row matches only one of them."""
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", filter_person="Renew",
+               filter_columns="Name, Owner")
+    )
+    assert {i["title"] for i in data["items"]} == {"Renew the domain"}
+
+
+def test_filter_naming_a_missing_column_says_so(app: Flask, client: FlaskClient) -> None:
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", filter_person="me", filter_columns="Nope")
+    )
+    assert "no column called 'Nope'" in data["error"]
+
+
+def test_filter_on_an_unfilterable_column_type_says_so(
+    app: Flask, client: FlaskClient
+) -> None:
+    """A date column can't be text-matched. Saying so beats matching nothing,
+    which reads exactly like a broken widget."""
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", filter_person="me", filter_columns="Due")
+    )
+    assert "is a date column" in data["error"]
+    assert "Filterable columns here" in data["error"]
+
+
+def test_filter_without_a_people_column_explains_itself(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    _write_stale_schema(app, ACCOUNT_A, DS_ID, {"Name": {"type": "title"}})
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="me"))
+    assert "no people column" in data["error"]
+
+
+def test_filter_survives_completed_tasks_being_included(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", filter_person="me", show_completed=True)
+    )
+    assert "Ship the deploy script" in {i["title"] for i in data["items"]}
+    assert "Renew the domain" not in {i["title"] for i in data["items"]}

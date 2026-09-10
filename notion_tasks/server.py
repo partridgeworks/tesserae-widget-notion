@@ -200,6 +200,11 @@ def fetch(
         refresh_min = 15
 
     show_completed = bool(options.get("show_completed"))
+    # Read here, not where they are used: the cache fingerprint below is
+    # built before the schema is fetched, and must include the filter or
+    # changing it would serve rows from the previous one.
+    filter_person = str(options.get("filter_person") or "").strip()
+    filter_columns = core.split_columns(options.get("filter_columns"))
     group_by = str(options.get("group_by") or "none").strip().lower()
 
     data_dir = Path(ctx.get("data_dir") or ".")
@@ -207,7 +212,9 @@ def fetch(
         data_dir.mkdir(parents=True, exist_ok=True)
     overrides = {k: v for k, v in sorted(options.items()) if k.endswith("_prop")}
     fingerprint = json.dumps(
-        [account_id, ds_id, limit, show_completed, group_by, overrides], sort_keys=True
+        [account_id, ds_id, limit, show_completed, group_by, overrides,
+         filter_person, filter_columns],
+        sort_keys=True,
     )
     slug = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
     result_path = data_dir / f"result_{slug}.json"
@@ -239,6 +246,32 @@ def fetch(
             "title": title,
         }
     props = core.resolve_props(schema_props, options)
+
+    # ---- filter -------------------------------------------------------
+    # A blank filter_person means "no filter", which is the pre-0.5 behaviour
+    # and stays the default: a cell that never set one is unchanged.
+    if filter_person and not filter_columns:
+        # Default to the detected people column, which is what "assigned to
+        # me" means in every database that has one.
+        filter_columns = [props["assignee"]] if props["assignee"] else []
+    if filter_person and not filter_columns:
+        return {
+            "error": (
+                "This database has no people column to filter on. Name the "
+                "columns to match in the cell's Filter columns option."
+            ),
+            "title": title,
+        }
+    if filter_person:
+        col_err = core.filter_column_error(schema_props, filter_columns)
+        if col_err:
+            return {"error": col_err, "title": title}
+    person_id = core.resolve_person(account_id, filter_person) if filter_person else ""
+    notion_filter, filter_complete = (
+        core.build_filter(schema_props, filter_columns, filter_person, person_id)
+        if filter_person
+        else (None, True)
+    )
     project_kind = core.prop_type(schema_props, props["project"])
 
     # Sort server-side by due date when the database has one, so that the
@@ -247,11 +280,18 @@ def fetch(
     # a status, a select or a checkbox, and building a Notion filter for the
     # right one is far more fragile than dropping rows after the fact.
     sorts = [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
-    pages, err = core.query(account_id, ds_id, sorts=sorts)
+    pages, err, truncated = core.query(
+        account_id, ds_id, filter_=notion_filter, sorts=sorts
+    )
     if err or pages is None:
         return {"error": err or "Couldn't load tasks from Notion.", "title": title}
 
     relation_names = core.relation_titles(account_id, pages, props["project"], project_kind)
+    if filter_person:
+        pages = [
+            p for p in pages
+            if core.row_matches(p, schema_props, filter_columns, filter_person, person_id)
+        ]
     today = date.today().isoformat()
     items = [
         _row(p, core, props, schema_props, project_kind, relation_names, today) for p in pages
@@ -274,6 +314,11 @@ def fetch(
         "has_status": bool(props["status"]),
         "group_by": group_by,
         "account": core.account_name(account_id),
+        "filtered_by": filter_person,
+        # True when rows were dropped locally out of a fetch that hit the
+        # page cap, so matches beyond it were never seen. A server-side
+        # filter runs before paging, so it never has this problem.
+        "filter_incomplete": bool(filter_person) and not filter_complete and truncated,
         "detected": props,
         "fetched_at": now,
     }

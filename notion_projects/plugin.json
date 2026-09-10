@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Projects",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "kind": "widget",
   "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-kanban",
@@ -105,6 +105,22 @@
       "default": false
     },
     {
+      "name": "filter_person",
+      "type": "string",
+      "label": "Only show items for",
+      "default": "",
+      "placeholder": "me",
+      "help": "Leave blank to show everything. Type 'me' for whoever owns the Notion token (exact, and filtered by Notion itself), or a person's name as it appears in Notion."
+    },
+    {
+      "name": "filter_columns",
+      "type": "string",
+      "label": "Filter columns (blank = the people column)",
+      "default": "",
+      "placeholder": "Assignee, Collaborators",
+      "help": "Comma-separated Notion column names. A row is kept if ANY of them matches. Blank uses the auto-detected people column."
+    },
+    {
       "name": "status_prop",
       "type": "string",
       "label": "Status column (blank = auto-detect)",
@@ -179,6 +195,11 @@
         "name": "items",
         "type": "arr",
         "label": "Projects"
+      },
+      {
+        "name": "filtered_by",
+        "type": "str",
+        "label": "Filter in force"
       }
     ],
     "sample": {
@@ -224,7 +245,8 @@
       "has_progress": true,
       "avg_progress": 0.4166,
       "fetched_at": 1757500000,
-      "account": "Work"
+      "account": "Work",
+      "filtered_by": ""
     }
   }
 }

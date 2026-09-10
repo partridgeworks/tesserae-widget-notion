@@ -26,6 +26,14 @@ TOKEN_B = "ntn_second-token"
 
 RELATED_PAGE_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
+# The human who owns the integration token. GET /v1/users/me returns the BOT;
+# the person is under bot.owner.user, and their id is the only thing Notion's
+# people filter accepts.
+OWNER_ID = "0000aaaa-1111-bbbb-2222-cccc3333dddd"
+OWNER_NAME = "Carl Partridge"
+OTHER_ID = "9999aaaa-8888-bbbb-7777-cccc6666dddd"
+OTHER_NAME = "Someone Else"
+
 SCHEMA: dict[str, Any] = {
     "Name": {"type": "title"},
     "Status": {"type": "status"},
@@ -34,6 +42,7 @@ SCHEMA: dict[str, Any] = {
     "Project": {"type": "multi_select"},
     "Progress": {"type": "number"},
     "Owner": {"type": "people"},
+    "Collaborators": {"type": "people"},
     "Done": {"type": "checkbox"},
 }
 
@@ -56,6 +65,8 @@ def _page(
     projects: list[str],
     progress: float | None = None,
     done: bool = False,
+    assignee: list[dict[str, str]] | None = None,
+    collaborators: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Name": {"type": "title", "title": [{"plain_text": name}]},
@@ -69,7 +80,8 @@ def _page(
             "multi_select": [{"name": p} for p in projects],
         },
         "Progress": {"type": "number", "number": progress},
-        "Owner": {"type": "people", "people": [{"name": "Carl"}]},
+        "Owner": {"type": "people", "people": assignee or []},
+        "Collaborators": {"type": "people", "people": collaborators or []},
         "Done": {"type": "checkbox", "checkbox": done},
     }
     return {
@@ -84,19 +96,26 @@ def _page(
 # distinct projects — so sort order, the completed filter and grouping all
 # have something to bite on. "Fix the panel refresh loop" carries TWO
 # projects, which is the multi-select case.
+ME = [{"object": "user", "id": OWNER_ID, "name": OWNER_NAME}]
+THEM = [{"object": "user", "id": OTHER_ID, "name": OTHER_NAME}]
+
 PAGES = [
     _page(
         "p1", "Fix the panel refresh loop", "In progress", "2020-01-02",
-        "High", ["Tesserae", "Home lab"], 0.75,
+        "High", ["Tesserae", "Home lab"], 0.75, assignee=ME,
     ),
     _page(
         "p2", "Write the Notion widget README", "To do", "2035-06-01",
-        "Medium", ["Tesserae"], 0.4,
+        "Medium", ["Tesserae"], 0.4, assignee=ME,
     ),
-    _page("p3", "Renew the domain", "To do", "", "Low", ["Life admin"], 0.1),
-    _page("p4", "Ship the deploy script", "Done", "2020-02-02", "High", ["Tesserae"], 1.0, True),
-    # No project at all: must land in the "No project" group, last.
-    _page("p5", "Unfiled odd job", "To do", "2035-07-01", "", [], 0.0),
+    # Assigned to somebody else: the thing a filter has to remove.
+    _page("p3", "Renew the domain", "To do", "", "Low", ["Life admin"], 0.1, assignee=THEM),
+    _page(
+        "p4", "Ship the deploy script", "Done", "2020-02-02",
+        "High", ["Tesserae"], 1.0, True, assignee=ME,
+    ),
+    # No project and nobody assigned.
+    _page("p5", "Unfiled odd job", "To do", "2035-07-01", "", [], 0.0, collaborators=ME),
 ]
 
 PAGES_B = [
@@ -151,12 +170,50 @@ class _Resp:
         return False
 
 
+def _forbidden(url: str) -> urllib.error.HTTPError:
+    """``GET /v1/users`` as a personal access token really does 403."""
+    body = json.dumps({
+        "object": "error", "code": "restricted_resource",
+        "message": "Personal access tokens cannot list users.",
+    }).encode()
+    return urllib.error.HTTPError(url, 403, "Forbidden", {}, io.BytesIO(body))
+
+
 def _not_found(url: str) -> urllib.error.HTTPError:
     """What Notion really returns when a token asks for a database in another
     workspace: 404 with ``object_not_found``, indistinguishable from a
     database that was simply never shared with the integration."""
     body = json.dumps({"object": "error", "code": "object_not_found"}).encode()
     return urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(body))
+
+
+def _clause_matches(page: dict[str, Any], clause: dict[str, Any]) -> bool:
+    """The subset of Notion's filter grammar these widgets emit."""
+    if "or" in clause:
+        return any(_clause_matches(page, c) for c in clause["or"])
+    name = clause.get("property")
+    raw = (page.get("properties") or {}).get(name) or {}
+    if "people" in clause:
+        wanted = clause["people"].get("contains")
+        return any(u.get("id") == wanted for u in (raw.get("people") or []))
+    for kind in ("title", "rich_text", "select", "status"):
+        if kind in clause:
+            cond = clause[kind]
+            if kind in ("title", "rich_text"):
+                text = "".join(n.get("plain_text", "") for n in (raw.get(kind) or []))
+            else:
+                text = ((raw.get(kind) or {}) or {}).get("name") or ""
+            if "contains" in cond:
+                return cond["contains"].lower() in text.lower()
+            if "equals" in cond:
+                return cond["equals"] == text
+    return True
+
+
+def _apply_filter(pages: list[dict[str, Any]], flt: Any) -> list[dict[str, Any]]:
+    if not isinstance(flt, dict):
+        return pages
+    return [p for p in pages if _clause_matches(p, flt)]
 
 
 def fake_urlopen(req: Request, *args: object, **kwargs: object) -> _Resp:
@@ -182,8 +239,20 @@ def fake_urlopen(req: Request, *args: object, **kwargs: object) -> _Resp:
             return _Resp({"object": "data_source", "id": owned, "properties": schema})
         if url.endswith("/query"):
             pages = PAGES_B if workspace_b else PAGES
+            payload = json.loads(req.data.decode()) if getattr(req, "data", None) else {}
+            pages = _apply_filter(pages, payload.get("filter"))
             return _Resp({"object": "list", "results": pages, "has_more": False})
 
+    if url.endswith("/v1/users/me"):
+        # Mirrors the real shape: a bot, with the human under bot.owner.user.
+        return _Resp({
+            "object": "user", "id": "bot-id", "name": "Tesserae-test", "type": "bot",
+            "bot": {"owner": {"type": "user", "user": {
+                "object": "user", "id": OWNER_ID, "name": OWNER_NAME}}},
+        })
+    if url.endswith("/v1/users") or "/v1/users?" in url:
+        # Notion refuses this for personal access tokens.
+        raise _forbidden(url)
     if "/v1/pages/" in url:
         if RELATED_PAGE_ID in url:
             return _Resp(RELATED_PAGE)

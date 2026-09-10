@@ -67,3 +67,31 @@ def test_account_option_selects_the_right_workspace(
     configure_two_accounts(app)
     data = cell_data(_render(client, "lg", account=ACCOUNT_B, data_source=DS_ID_B))
     assert data["account"] == "Personal"
+
+
+# ----- filtering ---------------------------------------------------------
+
+
+def test_filter_me_keeps_only_the_owners_projects(
+    app: Flask, client: FlaskClient
+) -> None:
+    _configure(app)
+    data = cell_data(_render(client, "lg", filter_person="me"))
+    titles = {i["title"] for i in data["items"]}
+    assert "Fix the panel refresh loop" in titles
+    assert "Renew the domain" not in titles
+    assert data["filtered_by"] == "me"
+
+
+def test_filter_ors_assignee_and_collaborators(app: Flask, client: FlaskClient) -> None:
+    """The shape this was built for: mine if I am the assignee OR a
+    collaborator. "Unfiled odd job" is only reachable through the second
+    column, so it proves the OR rather than the first clause alone."""
+    _configure(app)
+    one = cell_data(_render(client, "lg", filter_person="me", filter_columns="Owner"))
+    both = cell_data(
+        _render(client, "lg", filter_person="me", filter_columns="Owner, Collaborators")
+    )
+    assert "Unfiled odd job" not in {i["title"] for i in one["items"]}
+    assert "Unfiled odd job" in {i["title"] for i in both["items"]}
+    assert "Renew the domain" not in {i["title"] for i in both["items"]}

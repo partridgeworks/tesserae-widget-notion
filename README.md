@@ -66,6 +66,8 @@ per-cell, in the normal widget options.
 | **Show project names** | on | |
 | **Show status chips** | on | |
 | **Include completed tasks** | off | A panel is usually for what's left. |
+| **Only show items for** | — | Filter to one person. Blank shows everything. |
+| **Filter columns** | auto | Which columns the filter looks at. Blank = the people column. |
 | **… column** (×5) | auto | Override a detected column. Leave blank unless a guess is wrong. |
 
 ### Notion, Projects
@@ -80,6 +82,8 @@ per-cell, in the normal widget options.
 | **Show target dates** | on | |
 | **Show owner** | off | |
 | **Include completed projects** | off | |
+| **Only show items for** | — | Filter to one person. Blank shows everything. |
+| **Filter columns** | auto | Which columns the filter looks at. Blank = the people column. |
 | **… column** (×5) | auto | Override a detected column. |
 
 ### Overriding a column
@@ -92,6 +96,40 @@ the name from.
 
 Get it wrong and the cell says so and lists the columns that do exist. It will
 never silently read a different column instead.
+
+### Showing only your own items
+
+By default a widget shows every row in the database — which on a shared
+company database is everybody's work. **Only show items for** narrows it.
+
+Type **`me`**. That means whoever owns the Notion token, and it is the option
+to reach for:
+
+- It resolves to your real Notion user, so it survives you being renamed.
+- Notion does the filtering, before paging — so it stays correct on a database
+  far larger than one page.
+
+Typing your own name works identically. Any *other* person's name still
+works, but is matched on the displayed name after fetching (see below).
+
+**Filter columns** picks which columns are checked, comma-separated. A row is
+kept if **any** of them matches, which is how you get "mine if I'm the
+assignee *or* a collaborator":
+
+```
+Only show items for:  me
+Filter columns:       Assignee, Collaborators
+```
+
+Blank uses the auto-detected people column, so for a database with a single
+`Assignee` column you only need to fill in the first field.
+
+Filterable column types: people, select, status, multi-select, title and text.
+Naming a date or number column is an error rather than a silent empty list.
+
+> **A filter only finds what's actually filled in.** If nobody is assigned to
+> your tasks in Notion, filtering by person correctly returns nothing. Check
+> the rows have a person set before assuming the widget is broken.
 
 ### Several Notion accounts
 
@@ -118,6 +156,8 @@ at it fall back to another account rather than breaking.
 | Grouping uses the wrong column | A column added very recently | Self-corrects within 15 minutes; **Refresh from Notion** to force it |
 | *"Your stored Notion token can no longer be decrypted"* | `TESSERAE_SECRET_KEY` changed | Re-enter the token on the admin page |
 | Everything shows "No project" | The project column is a relation to a database you haven't shared | Share the *related* database too, so its page titles can be read |
+| A person filter shows nothing | Those rows have nobody assigned in Notion | Set the person in Notion, or clear the filter |
+| *"'X' is a date column, which can't be filtered"* | A non-text column named in **Filter columns** | Use a people, select, status, multi-select, title or text column |
 
 ## Good to know
 
@@ -133,6 +173,18 @@ each need one label, so the first entry wins, in Notion's own order.
 **What it fetches.** Up to 500 rows per refresh, sorted by due date where the
 database has one. Database lists are cached for an hour, column layouts for
 15 minutes, results for your chosen Refresh interval.
+
+**How person filtering works.** Notion's people filter takes a user *id*, not
+a name, and `GET /v1/users` is forbidden to personal access tokens — so a
+colleague's name cannot be looked up. What does work is `GET /v1/users/me`,
+whose `bot.owner.user` is the human who created the integration. That is how
+`me` resolves to a real id and gets filtered by Notion itself. Any other name
+is matched locally on the fetched rows, which is exact but only sees the first
+500 rows.
+
+Notion also accepts the literal string `"me"` in a people filter, but there it
+means the *integration bot* — never anybody's assignee — so it silently
+matches nothing. This widget deliberately does not use it.
 
 **Network and privacy.** `api.notion.com` is the only host these widgets ever
 contact, and Tesserae enforces that at the socket layer. Tokens are stored

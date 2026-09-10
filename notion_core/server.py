@@ -332,17 +332,23 @@ def _http_error_message(err: urllib.error.HTTPError) -> str:
 
 def _paginated(
     account_id: str, path: str, payload: dict[str, Any], *, max_pages: int = MAX_PAGES
-) -> tuple[list[dict[str, Any]] | None, str | None]:
-    """Walk a Notion cursor-paginated POST endpoint up to ``max_pages``."""
+) -> tuple[list[dict[str, Any]] | None, str | None, bool]:
+    """Walk a Notion cursor-paginated POST endpoint up to ``max_pages``.
+
+    The third element is True when Notion still had more rows at the cap.
+    That matters for filtering: rows dropped locally out of a truncated fetch
+    mean the widget cannot claim to be showing everything that matches.
+    """
     out: list[dict[str, Any]] = []
     cursor: str | None = None
+    truncated = False
     for _ in range(max_pages):
         page_payload = dict(payload, page_size=PAGE_SIZE)
         if cursor:
             page_payload["start_cursor"] = cursor
         data, err = _request(account_id, "POST", path, page_payload)
         if err or not isinstance(data, dict):
-            return None, err or "Notion returned an unexpected response."
+            return None, err or "Notion returned an unexpected response.", False
         results = data.get("results")
         if isinstance(results, list):
             out.extend(r for r in results if isinstance(r, dict))
@@ -351,7 +357,10 @@ def _paginated(
         cursor = data.get("next_cursor") or None
         if not cursor:
             break
-    return out, None
+        truncated = True
+    else:
+        truncated = bool(cursor)
+    return out, None, truncated
 
 
 # ----- rich text --------------------------------------------------------
@@ -389,7 +398,7 @@ def data_sources(
                 if isinstance(loaded, list):
                     return loaded, None
 
-    results, err = _paginated(
+    results, err, _ = _paginated(
         account_id,
         "/search",
         {
@@ -502,10 +511,10 @@ def query(
     filter_: dict[str, Any] | None = None,
     sorts: list[dict[str, Any]] | None = None,
     max_pages: int = MAX_PAGES,
-) -> tuple[list[dict[str, Any]] | None, str | None]:
-    """Query a data source for pages."""
+) -> tuple[list[dict[str, Any]] | None, str | None, bool]:
+    """Query a data source for pages → ``(pages, error, truncated)``."""
     if not ds_id:
-        return None, "No database selected."
+        return None, "No database selected.", False
     payload: dict[str, Any] = {}
     if filter_:
         payload["filter"] = filter_
@@ -784,6 +793,183 @@ def relation_titles(
             continue
         names[page_id] = page_title(data) or ""
     return names
+
+
+# ----- filtering --------------------------------------------------------
+
+# Types a server-side Notion filter can express directly. Everything else is
+# matched locally after the fetch.
+_FILTER_TEXT_TYPES = ("title", "rich_text", "url", "email", "phone_number")
+_FILTER_EQUALS_TYPES = ("select", "status")
+# Filterable at all, server-side or locally. A date or number column can't be
+# "contains"-matched meaningfully, and saying so beats matching nothing.
+FILTERABLE_TYPES = (
+    "people", "multi_select", *_FILTER_TEXT_TYPES, *_FILTER_EQUALS_TYPES,
+)
+
+OWNER_TTL_S = 3600
+# What a user types to mean "whoever owns this Notion token".
+ME_ALIASES = ("me", "myself", "mine")
+
+
+def split_columns(raw: Any) -> list[str]:
+    """"Assignee, Collaborators" → ["Assignee", "Collaborators"]."""
+    return [part.strip() for part in str(raw or "").split(",") if part.strip()]
+
+
+def token_owner(account_id: str) -> dict[str, str]:
+    """The *person* who owns this integration token → ``{"id", "name"}``.
+
+    ``GET /v1/users`` is forbidden to personal access tokens ("Personal access
+    tokens cannot list users"), so a person's name cannot be resolved to the
+    user id that Notion's ``people`` filter demands. This endpoint is the way
+    in: it returns the *bot*, whose ``bot.owner.user`` is the human who
+    created the integration.
+
+    Note the trap it avoids. Notion accepts the literal ``"me"`` in a people
+    filter, but "me" is the **bot**, which is never anybody's assignee — so
+    the obvious spelling silently matches nothing. Filtering by the owner's
+    real id is what actually works.
+    """
+    cache = data_dir() / f"owner_{_safe(account_id)}.json"
+    with contextlib.suppress(OSError, json.JSONDecodeError):
+        if cache.exists() and time.time() - cache.stat().st_mtime < OWNER_TTL_S:
+            loaded = json.loads(cache.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                return loaded
+
+    data, err = _request(account_id, "GET", "/users/me")
+    owner: dict[str, str] = {}
+    if not err and isinstance(data, dict):
+        bot = data.get("bot")
+        person = (bot or {}).get("owner", {}).get("user") if isinstance(bot, dict) else None
+        if isinstance(person, dict) and person.get("id"):
+            owner = {"id": str(person["id"]), "name": str(person.get("name") or "")}
+        elif data.get("type") == "person" and data.get("id"):
+            owner = {"id": str(data["id"]), "name": str(data.get("name") or "")}
+    with contextlib.suppress(OSError):
+        cache.write_text(json.dumps(owner), encoding="utf-8")
+    return owner
+
+
+def resolve_person(account_id: str, wanted: str) -> str:
+    """A Notion user id for ``wanted``, or "" if it can't be resolved.
+
+    Resolves "me" (and the owner's own name) to the token owner. Any other
+    name has no lookup available — see ``token_owner`` — so it falls through
+    to local matching on the rendered names.
+    """
+    name = str(wanted or "").strip()
+    if not name:
+        return ""
+    owner = token_owner(account_id)
+    if not owner:
+        return ""
+    if name.lower() in ME_ALIASES:
+        return owner["id"]
+    if owner.get("name") and name.lower() == owner["name"].strip().lower():
+        return owner["id"]
+    return ""
+
+
+def filter_column_error(schema_props: dict[str, Any] | None, columns: list[str]) -> str | None:
+    """Reject filter columns that can't be matched, naming the usable ones.
+
+    A date or number column would quietly match nothing, which reads exactly
+    like a broken widget.
+    """
+    props = schema_props if isinstance(schema_props, dict) else {}
+    for name in columns:
+        if name not in props:
+            return unknown_column_message(name, props)
+        kind = prop_type(props, name)
+        if kind not in FILTERABLE_TYPES:
+            usable = sorted(n for n in props if prop_type(props, n) in FILTERABLE_TYPES)
+            return (
+                f"'{name}' is a {kind} column, which can't be filtered by text. "
+                f"Filterable columns here: {', '.join(repr(u) for u in usable) or '(none)'}."
+            )
+    return None
+
+
+def build_filter(
+    schema_props: dict[str, Any] | None, columns: list[str], wanted: str, person_id: str
+) -> tuple[dict[str, Any] | None, bool]:
+    """A Notion filter for ``wanted`` across ``columns`` → (filter, complete).
+
+    ``complete`` is True only when every column was expressed server-side. It
+    is what tells the caller whether a truncated fetch can still be trusted:
+    Notion filters before paging, so a server-side filter never loses rows to
+    the page cap, while a local one can.
+    """
+    props = schema_props if isinstance(schema_props, dict) else {}
+    clauses: list[dict[str, Any]] = []
+    complete = True
+    for name in columns:
+        kind = prop_type(props, name)
+        if kind == "people":
+            # Only an id works here; a name is rejected outright by the API.
+            if person_id:
+                clauses.append({"property": name, "people": {"contains": person_id}})
+            else:
+                complete = False
+        elif kind in _FILTER_TEXT_TYPES:
+            clauses.append({"property": name, kind: {"contains": wanted}})
+        elif kind in _FILTER_EQUALS_TYPES:
+            clauses.append({"property": name, kind: {"equals": wanted}})
+        else:
+            # multi_select rejects the whole query with a 400 when the value
+            # isn't an existing option, so it is matched locally instead.
+            complete = False
+
+    if not clauses:
+        return None, False
+    if len(clauses) == 1:
+        return clauses[0], complete
+    return {"or": clauses}, complete
+
+
+def _column_text(page_obj: dict[str, Any], name: str, kind: str) -> tuple[str, list[str]]:
+    """One column rendered for local matching → (text, people_ids)."""
+    value = prop(page_obj, name)
+    ids: list[str] = []
+    if kind == "people":
+        raw = (page_obj.get("properties") or {}).get(name) or {}
+        ids = [
+            str(u.get("id") or "")
+            for u in (raw.get("people") or [])
+            if isinstance(u, dict) and u.get("id")
+        ]
+    if isinstance(value, list):
+        return " ".join(str(v) for v in value if v), ids
+    if isinstance(value, dict):
+        return str(value.get("start") or ""), ids
+    return str(value or ""), ids
+
+
+def row_matches(
+    page_obj: dict[str, Any],
+    schema_props: dict[str, Any] | None,
+    columns: list[str],
+    wanted: str,
+    person_id: str = "",
+) -> bool:
+    """Does this page match the filter? OR across ``columns``.
+
+    Case-insensitive substring on the rendered text, plus an exact id match
+    for people columns, so "me" works even where the display name doesn't.
+    """
+    needle = str(wanted or "").strip().lower()
+    if not needle and not person_id:
+        return True
+    props = schema_props if isinstance(schema_props, dict) else {}
+    for name in columns:
+        text, ids = _column_text(page_obj, name, prop_type(props, name))
+        if person_id and person_id in ids:
+            return True
+        if needle and needle in text.lower():
+            return True
+    return False
 
 
 # ----- status semantics -------------------------------------------------

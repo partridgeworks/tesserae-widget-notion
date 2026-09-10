@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "kind": "widget",
   "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
@@ -130,6 +130,22 @@
       "help": "Off by default: a wall panel is for what's left, not what's finished."
     },
     {
+      "name": "filter_person",
+      "type": "string",
+      "label": "Only show items for",
+      "default": "",
+      "placeholder": "me",
+      "help": "Leave blank to show everything. Type 'me' for whoever owns the Notion token (exact, and filtered by Notion itself), or a person's name as it appears in Notion."
+    },
+    {
+      "name": "filter_columns",
+      "type": "string",
+      "label": "Filter columns (blank = the people column)",
+      "default": "",
+      "placeholder": "Assignee, Collaborators",
+      "help": "Comma-separated Notion column names. A row is kept if ANY of them matches. Blank uses the auto-detected people column."
+    },
+    {
       "name": "status_prop",
       "type": "string",
       "label": "Status column (blank = auto-detect)",
@@ -208,6 +224,11 @@
         "name": "groups",
         "type": "arr",
         "label": "Tasks grouped by project"
+      },
+      {
+        "name": "filtered_by",
+        "type": "str",
+        "label": "Filter in force"
       }
     ],
     "sample": {
@@ -276,7 +297,8 @@
       "has_status": true,
       "fetched_at": 1757500000,
       "group_by": "none",
-      "account": "Work"
+      "account": "Work",
+      "filtered_by": ""
     }
   }
 }
