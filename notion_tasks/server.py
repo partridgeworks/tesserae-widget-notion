@@ -267,6 +267,10 @@ def fetch(
         if col_err:
             return {"error": col_err, "title": title}
     person_id = core.resolve_person(account_id, filter_person) if filter_person else ""
+    if filter_person:
+        person_err = core.person_filter_error(account_id, filter_person)
+        if person_err:
+            return {"error": person_err, "title": title}
     notion_filter, filter_complete = (
         core.build_filter(schema_props, filter_columns, filter_person, person_id)
         if filter_person

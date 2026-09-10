@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "kind": "widget",
   "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
@@ -143,7 +143,7 @@
       "label": "Filter columns (blank = the people column)",
       "default": "",
       "placeholder": "Assignee, Collaborators",
-      "help": "Comma-separated Notion column names. A row is kept if ANY of them matches. Blank uses the auto-detected people column."
+      "help": "Comma-separated Notion column names, e.g. 'Assignee, Collaborators'. A row is kept if ANY of them matches. Blank uses the auto-detected people column. The Notion Core admin page's Inspect columns link lists the exact names."
     },
     {
       "name": "status_prop",

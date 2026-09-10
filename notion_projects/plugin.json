@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Projects",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "kind": "widget",
   "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-kanban",
@@ -118,7 +118,7 @@
       "label": "Filter columns (blank = the people column)",
       "default": "",
       "placeholder": "Assignee, Collaborators",
-      "help": "Comma-separated Notion column names. A row is kept if ANY of them matches. Blank uses the auto-detected people column."
+      "help": "Comma-separated Notion column names, e.g. 'Assignee, Collaborators'. A row is kept if ANY of them matches. Blank uses the auto-detected people column. The Notion Core admin page's Inspect columns link lists the exact names."
     },
     {
       "name": "status_prop",

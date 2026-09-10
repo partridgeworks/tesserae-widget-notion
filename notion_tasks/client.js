@@ -93,13 +93,17 @@ export default function render(shadow, ctx) {
   }
 
   if (data.empty) {
+    // A filtered empty list is not the same news as an empty database, and
+    // saying which was applied is the difference between "all done" and
+    // "nothing here is assigned to that person".
+    const who = data.filtered_by || "";
     shadow.innerHTML = `
       ${css}
       <div class="w" data-widget="notion_tasks">
         <div class="w-title"><i class="ph-bold ph-list-checks" style="color:var(--accent-3)"></i><h3>${escapeHtml(title)}</h3></div>
         <div class="w-body" style="justify-content:center;align-items:center">
           <i class="ph-bold ph-check-circle" style="color:var(--accent-3);font-size:3em"></i>
-          <p class="u-muted">Nothing open.</p>
+          <p class="u-muted">${who ? `Nothing for ${escapeHtml(who)}.` : "Nothing open."}</p>
         </div>
       </div>`;
     return;

@@ -872,6 +872,23 @@ def resolve_person(account_id: str, wanted: str) -> str:
     return ""
 
 
+def person_filter_error(account_id: str, wanted: str) -> str | None:
+    """Reject a "me" that could not be resolved to a real user.
+
+    Without this, an unresolvable "me" falls through to the local matcher and
+    is substring-matched against rendered names — so it quietly returns every
+    row assigned to a Mel, a James or a Carmen. An error is the only honest
+    answer: "me" is a claim about identity, not a search term.
+    """
+    if str(wanted or "").strip().lower() in ME_ALIASES and not resolve_person(account_id, wanted):
+        return (
+            "Couldn't work out who 'me' is — Notion didn't report an owner for "
+            "this integration. Re-check the token on the Notion Core admin page, "
+            "or type the person's name as Notion spells it."
+        )
+    return None
+
+
 def filter_column_error(schema_props: dict[str, Any] | None, columns: list[str]) -> str | None:
     """Reject filter columns that can't be matched, naming the usable ones.
 

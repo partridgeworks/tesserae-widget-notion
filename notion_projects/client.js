@@ -87,7 +87,9 @@ export default function render(shadow, ctx) {
         <div class="w-title"><i class="ph-bold ph-kanban" style="color:var(--accent-3)"></i><h3>${escapeHtml(title)}</h3></div>
         <div class="w-body" style="justify-content:center;align-items:center">
           <i class="ph-bold ph-check-circle" style="color:var(--accent-3);font-size:3em"></i>
-          <p class="u-muted">No active projects.</p>
+          <p class="u-muted">${data.filtered_by
+            ? `Nothing for ${escapeHtml(data.filtered_by)}.`
+            : "No active projects."}</p>
         </div>
       </div>`;
     return;

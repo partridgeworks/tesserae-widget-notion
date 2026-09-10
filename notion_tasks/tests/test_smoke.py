@@ -374,3 +374,29 @@ def test_filter_survives_completed_tasks_being_included(
     )
     assert "Ship the deploy script" in {i["title"] for i in data["items"]}
     assert "Renew the domain" not in {i["title"] for i in data["items"]}
+
+
+def test_unresolvable_me_errors_rather_than_matching_the_word(
+    app: Flask, client: FlaskClient
+) -> None:
+    """If "me" can't be resolved to a real user it must NOT fall through to
+    the local matcher, which substring-matches the rendered names — "me"
+    appears in Mel, James and Carmen, so it would quietly return other
+    people's work while looking like it had filtered correctly."""
+    configure_one_account(app)
+    core_dir = Path(app.config["PLUGIN_REGISTRY"].get("notion_core").data_dir)
+    core_dir.mkdir(parents=True, exist_ok=True)
+    # An owner lookup that came back empty, cached.
+    (core_dir / f"owner_{ACCOUNT_A}.json").write_text("{}")
+
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="me"))
+    assert "Couldn't work out who 'me' is" in data["error"]
+
+
+def test_empty_result_names_the_filter(app: Flask, client: FlaskClient) -> None:
+    """"Nothing open" after a filter reads as a broken widget. The payload has
+    to carry what was filtered on so the cell can say which it was."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", filter_person="Nobody At All"))
+    assert data["empty"] is True
+    assert data["filtered_by"] == "Nobody At All"

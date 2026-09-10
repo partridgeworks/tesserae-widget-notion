@@ -128,8 +128,22 @@ Filterable column types: people, select, status, multi-select, title and text.
 Naming a date or number column is an error rather than a silent empty list.
 
 > **A filter only finds what's actually filled in.** If nobody is assigned to
-> your tasks in Notion, filtering by person correctly returns nothing. Check
-> the rows have a person set before assuming the widget is broken.
+> those rows in Notion, filtering by person correctly returns nothing — the
+> cell says "Nothing for me" rather than pretending the database is empty.
+> Check in Notion that the rows really have a person set, and that you are
+> looking at the database you think you are: names like *Tasks* and *To-dos*
+> multiply, and only one of them is usually the one you work out of.
+
+> **Get the column names from Notion, not from memory.** *Assignee* is often
+> actually *Owner*, *Assign* or *Current owner*, and it differs per database.
+> **Inspect columns** on the admin page lists the exact spelling. A name that
+> doesn't exist is reported as an error listing the real ones.
+
+> **Some workspaces contain you twice.** If you have both a work and a guest
+> account in one workspace, `me` means whichever of them owns the integration
+> token — which may not be the identity your colleagues assign work to. The
+> admin page shows the resolved owner name; if it isn't the one you expect,
+> create the integration from the other account.
 
 ### Several Notion accounts
 
