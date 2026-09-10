@@ -343,10 +343,9 @@ def test_choices_without_a_token_explains_itself(app: Flask) -> None:
     unconfigured case returns a row that says what to do."""
     core = _core(app)
     with app.app_context():
-        for key in ("accounts", "data_sources"):
-            options = core.choices(key)
-            assert len(options) == 1
-            assert "No Notion account" in options[0]["label"]
+        options = core.choices("data_sources")
+    assert len(options) == 1
+    assert "No Notion account" in options[0]["label"]
 
 
 def test_admin_page_renders_a_pane_per_account(app: Flask, client) -> None:
@@ -374,3 +373,13 @@ def test_admin_page_without_any_account_explains_setup(app: Flask, client) -> No
     resp = client.get("/plugins/notion_core/")
     assert resp.status_code == 200
     assert "my-integrations" in resp.get_data(as_text=True)
+
+
+def test_there_is_no_accounts_dropdown_any_more(app: Flask) -> None:
+    """The per-cell account picker was removed: the selected database names
+    exactly one workspace, so a second control could only ever disagree with
+    it. An unknown key must return nothing rather than resurrect one."""
+    core = _core(app)
+    configure_two_accounts(app)
+    with app.app_context():
+        assert core.choices("accounts") == []

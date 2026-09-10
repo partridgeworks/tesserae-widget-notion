@@ -12,7 +12,7 @@ from flask import Flask
 from flask.testing import FlaskClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.fake_notion import DS_ID_B, fake_urlopen  # noqa: E402
+from tests.fake_notion import DS_ID, DS_ID_B, fake_urlopen  # noqa: E402
 from tests.helpers import (  # noqa: E402
     ACCOUNT_A,
     ACCOUNT_B,
@@ -89,6 +89,22 @@ def test_relation_project_resolves_to_the_related_page_title(
 # ----- grouping ----------------------------------------------------------
 
 
+def _write_stale_schema(app: Flask, account_id: str, ds_id: str, props: dict) -> None:
+    """Plant a schema cache missing a column the live database has.
+
+    This is the real failure it reproduces: a relation column added in Notion
+    after the cache was written stayed invisible for the cache's lifetime, so
+    both the operator's explicit override and auto-detection worked off a
+    column list that no longer matched the database.
+    """
+    import json as _json
+
+    core_dir = Path(app.config["PLUGIN_REGISTRY"].get("notion_core").data_dir)
+    core_dir.mkdir(parents=True, exist_ok=True)
+    (core_dir / f"schema_{account_id}_{ds_id}.json").write_text(_json.dumps(props))
+
+
+
 def test_grouping_is_off_by_default(app: Flask, client: FlaskClient) -> None:
     configure_one_account(app)
     assert "groups" not in cell_data(render(client, PLUGIN, "lg"))
@@ -127,25 +143,27 @@ def test_group_order_puts_the_most_urgent_project_first(
     # here: this response carries the data, not the rendered shadow DOM.
 
 
-def test_grouping_falls_back_when_there_is_no_project_column(
+def test_grouping_is_skipped_when_the_database_has_no_project_column(
     app: Flask, client: FlaskClient
 ) -> None:
-    """Pointing the project override at a column that doesn't exist must not
-    invent an empty grouping; the flat list still renders."""
+    """Group by Project against a database with nothing to group by must
+    render the flat list, not an empty grouping or an error."""
     configure_one_account(app)
-    data = cell_data(render(client, PLUGIN, "lg", group_by="project", project_prop="Nope"))
-    # The override is ignored, so detection still finds the real column.
-    assert data["groups"]
+    _write_stale_schema(app, ACCOUNT_A, DS_ID, {"Name": {"type": "title"}})
+    data = cell_data(render(client, PLUGIN, "lg", group_by="project"))
+    assert not data.get("error"), data.get("error")
+    assert "groups" not in data
+    assert data["items"]
 
 
 # ----- accounts ----------------------------------------------------------
 
 
-def test_account_option_selects_the_right_workspace(
-    app: Flask, client: FlaskClient
-) -> None:
+def test_the_database_selects_the_workspace(app: Flask, client: FlaskClient) -> None:
+    """No account is passed at all: picking a database is the whole act of
+    choosing an account, because a data source id belongs to one workspace."""
     configure_two_accounts(app)
-    data = cell_data(render(client, PLUGIN, "lg", account=ACCOUNT_B, data_source=DS_ID_B))
+    data = cell_data(render(client, PLUGIN, "lg", data_source=DS_ID_B))
     assert data["account"] == "Personal"
     assert data["items"][0]["title"] == "Second workspace task"
 
@@ -182,14 +200,14 @@ def test_legacy_single_token_install_still_renders(app: Flask, client: FlaskClie
     assert data["items"]
 
 
-def test_account_choices_hint_when_there_is_only_one(app: Flask) -> None:
-    configure_one_account(app)
-    core = app.config["PLUGIN_REGISTRY"].get("notion_core").server_module
-    with app.app_context():
-        options = core.choices("accounts")
-    assert len(options) == 1
-    assert "only account" in options[0]["label"]
-    assert options[0]["value"] == ACCOUNT_A
+def test_neither_widget_declares_an_account_option(app: Flask) -> None:
+    """Regression guard. The picker looked like it filtered the Database list
+    and could not (the host gives choices() only the option key), and once the
+    database decided the account it did nothing at all. It must not come back."""
+    registry = app.config["PLUGIN_REGISTRY"]
+    for plugin_id in ("notion_tasks", "notion_projects"):
+        options = registry.get(plugin_id).manifest.get("cell_options", [])
+        assert "account" not in {o["name"] for o in options}, plugin_id
 
 
 def test_mismatched_account_and_database_still_renders(
@@ -207,3 +225,36 @@ def test_mismatched_account_and_database_still_renders(
     assert not data.get("error"), data.get("error")
     assert data["account"] == "Personal"
     assert data["items"][0]["title"] == "Second workspace task"
+
+
+# ----- stale schema cache ------------------------------------------------
+
+
+def test_override_of_a_column_missing_from_a_stale_cache_self_heals(
+    app: Flask, client: FlaskClient
+) -> None:
+    """The operator types a real column name; the cache predates it. The
+    widget must re-read the schema and honour the override, not silently
+    fall back to whatever auto-detection finds in the stale copy."""
+    configure_one_account(app)
+    _write_stale_schema(
+        app, ACCOUNT_A, DS_ID, {"Name": {"type": "title"}, "Priority": {"type": "select"}}
+    )
+    data = cell_data(
+        render(client, PLUGIN, "lg", group_by="project", project_prop="Project")
+    )
+    assert not data.get("error"), data.get("error")
+    assert data["detected"]["project"] == "Project"
+    # Grouped by the real project column, not by Priority.
+    assert {g["name"] for g in data["groups"]} >= {"Tesserae", "Life admin"}
+
+
+def test_an_override_naming_no_real_column_says_so(
+    app: Flask, client: FlaskClient
+) -> None:
+    """A genuine typo must be reported, listing the columns that do exist --
+    silently reading a different column is how this went unnoticed."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", project_prop="Epsiodes"))
+    assert "no column called 'Epsiodes'" in data["error"]
+    assert "'Project'" in data["error"]

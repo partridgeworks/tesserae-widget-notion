@@ -222,6 +222,22 @@ def fetch(
     schema_props, err = core.schema(account_id, ds_id)
     if err or schema_props is None:
         return {"error": err or "Couldn't read that database.", "title": title}
+    # An override that doesn't match is nearly always a schema this cache has
+    # not caught up with -- a column added minutes ago -- rather than a typo.
+    # Re-read once before blaming the operator, then say so plainly if it
+    # really isn't there. Falling through to auto-detection instead means
+    # silently reading a column nobody asked for.
+    missing = core.unmatched_overrides(schema_props, options)
+    if missing:
+        fresh, fresh_err = core.schema(account_id, ds_id, refresh=True)
+        if fresh is not None and not fresh_err:
+            schema_props = fresh
+            missing = core.unmatched_overrides(schema_props, options)
+    if missing:
+        return {
+            "error": core.unknown_column_message(missing[0][1], schema_props),
+            "title": title,
+        }
     props = core.resolve_props(schema_props, options)
     project_kind = core.prop_type(schema_props, props["project"])
 

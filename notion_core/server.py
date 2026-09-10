@@ -58,7 +58,13 @@ USER_AGENT = "tesserae/0.1 (+notion_core)"
 HTTP_TIMEOUT_S = 15
 
 DISCOVERY_TTL_S = 3600
-SCHEMA_TTL_S = 3600
+# Deliberately shorter than discovery. A stale *list* of databases is a
+# cosmetic annoyance in a dropdown; a stale *schema* silently changes which
+# column a widget reads, because detection runs against whatever this cache
+# holds. That cost an afternoon: a relation column added after the cache was
+# written was invisible for an hour, so grouping fell back to the first
+# select column it could see (Priority) with nothing said.
+SCHEMA_TTL_S = 900
 
 # Notion pages a search/query 100 at a time. Cap the walk so a huge database
 # can't turn one render into a hundred round-trips; widgets show a handful of
@@ -657,12 +663,50 @@ def detect(schema_props: dict[str, Any] | None) -> dict[str, str]:
     }
 
 
+def unmatched_overrides(
+    schema_props: dict[str, Any] | None, options: dict[str, Any]
+) -> list[tuple[str, str]]:
+    """``(role, typed_name)`` for every ``*_prop`` override naming a column
+    this schema does not contain.
+
+    Silently ignoring these was the bug: an operator who typed a real column
+    name that the cached schema had not caught up with got a different column
+    entirely, chosen by auto-detection, with no indication anything had been
+    overridden at all.
+    """
+    props = schema_props if isinstance(schema_props, dict) else {}
+    out: list[tuple[str, str]] = []
+    for key in detect(None):
+        typed = str(options.get(f"{key}_prop") or "").strip()
+        if typed and typed not in props:
+            out.append((key, typed))
+    return out
+
+
+def unknown_column_message(typed: str, schema_props: dict[str, Any] | None) -> str:
+    """A column-not-found message that names what IS there.
+
+    Listing the real columns turns "it ignored me" into a one-glance fix,
+    including for the case this was written for: an emoji-prefixed name typed
+    without its emoji.
+    """
+    names = sorted(schema_props or {})
+    shown = ", ".join(f"'{n}'" for n in names[:12])
+    if len(names) > 12:
+        shown += f", … ({len(names)} in total)"
+    return (
+        f"This database has no column called '{typed}'. "
+        f"Available columns: {shown or '(none)'}."
+    )
+
+
 def resolve_props(schema_props: dict[str, Any] | None, options: dict[str, Any]) -> dict[str, str]:
     """Auto-detection, with any explicit ``*_prop`` cell option winning.
 
-    An override naming a property that doesn't exist is ignored rather than
-    honoured — a typo should degrade to the detected column, not blank the
-    field with no explanation.
+    An override naming a property that doesn't exist is ignored here, but
+    callers must not let that pass silently: check ``unmatched_overrides``
+    first and surface it. Quietly falling back to a detected column means
+    the cell reads something the operator never asked for.
     """
     detected = detect(schema_props)
     props = schema_props if isinstance(schema_props, dict) else {}
@@ -771,24 +815,9 @@ def choices(name: str) -> list[dict[str, str]]:
     Errors render as a single explanatory row rather than an empty picker,
     which is impossible to diagnose from the editor.
     """
-    if name == "accounts":
-        return _account_choices()
     if name == "data_sources":
         return _data_source_choices()
     return []
-
-
-def _account_choices() -> list[dict[str, str]]:
-    usable = configured_accounts()
-    if not usable:
-        return [{"value": "", "label": "No Notion account configured yet"}]
-    if len(usable) == 1:
-        # One account: the picker has nothing to decide, so say so rather
-        # than offering a menu of one. `resolve_account` uses this account
-        # whatever the cell stores, so the value here is immaterial.
-        only = usable[0]
-        return [{"value": only["id"], "label": f"{only['name'] or only['id']} (only account)"}]
-    return [{"value": a["id"], "label": a["name"] or a["id"]} for a in usable]
 
 
 def _data_source_choices() -> list[dict[str, str]]:
@@ -802,10 +831,10 @@ def _data_source_choices() -> list[dict[str, str]]:
                 "label": "No databases shared with the integration yet (Notion: ••• → Connections)",
             }
         ]
-    # `choices()` is handed only the option key, never the cell's other
-    # values, so this list cannot be filtered to the account the cell picked.
-    # Naming the account in the label is what keeps a multi-account install
-    # legible; with one account the prefix would be noise.
+    # This is the only account-bearing control a cell has: the account name
+    # in the label is how the operator tells two workspaces' databases apart,
+    # and picking a row selects that account (see `resolve_account`). With one
+    # account the prefix would be noise.
     multi = len(configured_accounts()) > 1
     return [
         {

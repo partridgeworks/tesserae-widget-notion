@@ -34,6 +34,24 @@ Notion's own order — the order you see in Notion. Relation ids are resolved to
 the related page's title (capped at 24 lookups per render, since each costs a
 request); anything unresolved shows no project rather than a raw UUID.
 
+## When a column override doesn't match
+
+Type a column name into any *… column* option and it is used verbatim — but
+only if the database really has a column by that name. If it doesn't, the cell
+says so and lists the columns that do exist, rather than quietly falling back
+to an auto-detected column and reading something you never asked for.
+
+Before reporting that, the widget re-reads the schema once. Schemas are cached
+for 15 minutes, and a column added in Notion moments earlier is by far the
+likeliest reason a correct name looks wrong — so the stale-cache case heals
+itself and only a genuine typo produces an error.
+
+This matters more than it sounds. Detection also runs against the cached
+schema, so a stale copy silently changes which column a widget reads: a
+relation column added after the cache was written was invisible, and grouping
+fell back to the first `select` it could see (`Priority`) with nothing said.
+Hence the shorter TTL for schemas than for the database list.
+
 ## Grouping tasks by project
 
 *Notion, Tasks* has a **Group by** option, defaulting to **No grouping**. Set
@@ -80,20 +98,15 @@ can see, and *Inspect columns* shows the detected mapping for one.
 ### Several Notion accounts
 
 Use **Add another account** for a second workspace, or a second integration on
-the same one. Each account keeps its own friendly name and token, and each
-widget cell has a **Notion account** option choosing which one it reads.
+the same one. Each account keeps its own friendly name and token.
 
-With a single account there is nothing to choose: the picker shows that one
-account marked *(only account)* and it is used whether or not the cell stores
-it. Tesserae's cell editor has no mechanism for hiding an option conditionally
-— there is no `visible_if` in the plugin schema — so the field is still
-rendered; it simply has no decision to make.
-
-When several accounts are configured, the **Database** dropdown lists every
-account's databases prefixed with the account name (`Work · Roadmap`). It has
-to: the host hands `choices()` only the option key, never the cell's other
-values, so the list cannot be filtered to the account the cell picked. If the
-two ever disagree, the database wins, because it names exactly one account.
+There is no per-cell account picker. The **Database** dropdown lists every
+account's databases, prefixed with the account name when more than one is
+configured (`Work · Roadmap`), and picking one selects that account too — a
+Notion data source id belongs to exactly one workspace, so there is nothing
+further to choose. A second control could only ever disagree with the first:
+Tesserae hands `choices()` only the option key, never the cell's other values,
+so the database list cannot be filtered by an account selection.
 
 Removing an account erases its token from disk (both the encrypted and any
 legacy plaintext key) and drops its cached discovery. Cells pointing at it
@@ -186,9 +199,10 @@ dark, grouped and ungrouped; multi-valued project columns (`multi_select` and
 single-token install still renders; removing an account erases its token.
 58 tests.
 
-**Verified against a real workspace:** database discovery, column detection and
-task/project rendering (0.1.0). The multi-account paths and grouping are so far
-only exercised against the fake API.
+**Verified against a real workspace:** database discovery, column detection,
+task/project rendering, two accounts side by side, and grouping by a
+multi-valued `relation` column (an emoji-named "🎬 Episodes" relation grouping
+into per-episode headings).
 
 ## License
 

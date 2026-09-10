@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "kind": "widget",
   "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
@@ -22,20 +22,12 @@
   },
   "cell_options": [
     {
-      "name": "account",
-      "type": "select",
-      "label": "Notion account",
-      "default": "",
-      "choices_from": "accounts",
-      "help": "Which account to read from until a database is chosen. Once you pick a database the account follows it automatically \u2014 a Notion database belongs to exactly one workspace \u2014 so this and the Database list cannot end up contradicting each other."
-    },
-    {
       "name": "data_source",
       "type": "select",
       "label": "Database",
       "default": "",
       "choices_from": "data_sources",
-      "help": "Every database your Notion accounts can see. With more than one account each entry is prefixed by its account name, and picking one selects that account too. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
+      "help": "Every database your Notion accounts can see, prefixed by account name when more than one is configured. Picking one also selects that account: a Notion database belongs to exactly one workspace, so there is nothing else to choose. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
     },
     {
       "name": "title",
