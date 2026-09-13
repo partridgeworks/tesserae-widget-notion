@@ -40,10 +40,15 @@ SCHEMA: dict[str, Any] = {
     "Due": {"type": "date"},
     "Priority": {"type": "select"},
     "Project": {"type": "multi_select"},
-    "Progress": {"type": "number"},
+    "Progress": {"type": "number", "number": {"format": "percent"}},
     "Owner": {"type": "people"},
     "Collaborators": {"type": "people"},
     "Done": {"type": "checkbox"},
+    # Read only by the cards widget, which shows any column it is pointed
+    # at: plain text, a link, and a timestamp Notion maintains itself.
+    "Notes": {"type": "rich_text"},
+    "Link": {"type": "url"},
+    "Created": {"type": "created_time"},
 }
 
 # Workspace B uses a relation for its project column, so the relation branch
@@ -67,6 +72,7 @@ def _page(
     done: bool = False,
     assignee: list[dict[str, str]] | None = None,
     collaborators: list[dict[str, str]] | None = None,
+    notes: str = "",
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Name": {"type": "title", "title": [{"plain_text": name}]},
@@ -83,6 +89,9 @@ def _page(
         "Owner": {"type": "people", "people": assignee or []},
         "Collaborators": {"type": "people", "people": collaborators or []},
         "Done": {"type": "checkbox", "checkbox": done},
+        "Notes": {"type": "rich_text", "rich_text": [{"plain_text": notes}] if notes else []},
+        "Link": {"type": "url", "url": f"https://example.test/{page_id}"},
+        "Created": {"type": "created_time", "created_time": "2026-09-01T09:30:00.000Z"},
     }
     return {
         "object": "page",
@@ -102,7 +111,7 @@ THEM = [{"object": "user", "id": OTHER_ID, "name": OTHER_NAME}]
 PAGES = [
     _page(
         "p1", "Fix the panel refresh loop", "In progress", "2020-01-02",
-        "High", ["Tesserae", "Home lab"], 0.75, assignee=ME,
+        "High", ["Tesserae", "Home lab"], 0.75, assignee=ME, notes="Flickers every 3rd push",
     ),
     _page(
         "p2", "Write the Notion widget README", "To do", "2035-06-01",

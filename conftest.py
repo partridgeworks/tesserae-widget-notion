@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent
-PLUGIN_FOLDERS = ("notion_core", "notion_tasks", "notion_projects")
+PLUGIN_FOLDERS = ("notion_core", "notion_tasks", "notion_list", "notion_cards")
 
 _DEFAULT_SRC = REPO.parent.parent / "tesserae-upstream-fork"
 TESSERAE_SRC = Path(os.environ.get("TESSERAE_SRC", _DEFAULT_SRC)).expanduser()

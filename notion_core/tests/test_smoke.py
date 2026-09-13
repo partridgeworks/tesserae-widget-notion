@@ -16,11 +16,10 @@ from unittest.mock import patch
 from flask import Flask
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from fake_notion import DS_ID, SCHEMA, TOKEN_A, fake_urlopen  # noqa: E402
+from fake_notion import DS_ID, DS_ID_B, SCHEMA, TOKEN_A, fake_urlopen  # noqa: E402
 from helpers import (  # noqa: E402
     ACCOUNT_A,
     ACCOUNT_B,
-    configure_legacy_account,
     configure_one_account,
     configure_two_accounts,
 )
@@ -47,18 +46,6 @@ def test_accounts_round_trip(app: Flask) -> None:
         assert core.is_configured() is True
 
 
-def test_legacy_single_token_is_surfaced_as_one_account(app: Flask) -> None:
-    """A pre-multi-account install must keep working with nothing rewritten."""
-    core = _core(app)
-    configure_legacy_account(app)
-    with app.app_context():
-        accounts = core.accounts()
-        assert len(accounts) == 1
-        assert accounts[0]["name"] == "Notion"
-        assert core.token_for(accounts[0]["id"]) == TOKEN_A
-        assert core.default_account_id() == core.LEGACY_ACCOUNT_ID
-
-
 def test_an_account_without_a_token_is_not_usable(app: Flask) -> None:
     """Half-configured accounts must not be offered to cells, or a widget
     would pick one and fail at render time."""
@@ -73,18 +60,21 @@ def test_an_account_without_a_token_is_not_usable(app: Flask) -> None:
         assert "no token yet" in (core.config_error() or "")
 
 
-def test_resolve_account_prefers_the_cells_choice(app: Flask) -> None:
+def test_the_database_decides_the_account(app: Flask) -> None:
+    """A data source id belongs to exactly one workspace, so its owner wins;
+    there is no per-cell account option to contradict it."""
+    core = _core(app)
+    configure_two_accounts(app)
+    with app.app_context(), patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        assert core.resolve_account({"data_source": DS_ID_B})[0] == ACCOUNT_B
+        assert core.resolve_account({"data_source": DS_ID})[0] == ACCOUNT_A
+
+
+def test_resolve_account_without_a_database_uses_the_first_account(app: Flask) -> None:
     core = _core(app)
     configure_two_accounts(app)
     with app.app_context():
-        assert core.resolve_account({"account": ACCOUNT_B})[0] == ACCOUNT_B
-
-
-def test_resolve_account_ignores_an_id_that_no_longer_exists(app: Flask) -> None:
-    core = _core(app)
-    configure_one_account(app)
-    with app.app_context():
-        account_id, err = core.resolve_account({"account": "gone"})
+        account_id, err = core.resolve_account({})
     assert account_id == ACCOUNT_A
     assert err is None
 
@@ -184,11 +174,11 @@ def test_detect_maps_every_role_from_the_fake_schema(app: Flask) -> None:
         detected = core.detect(SCHEMA)
     assert detected["title"] == "Name"
     assert detected["status"] == "Status"
-    assert detected["due"] == "Due"
+    assert detected["date"] == "Due"
     assert detected["priority"] == "Priority"
     assert detected["project"] == "Project"
     assert detected["done"] == "Done"
-    assert detected["assignee"] == "Owner"
+    assert detected["person"] == "Owner"
     assert detected["progress"] == "Progress"
 
 
@@ -198,7 +188,7 @@ def test_detect_survives_a_database_with_only_a_title(app: Flask) -> None:
         detected = core.detect({"Name": {"type": "title"}})
     assert detected["title"] == "Name"
     assert detected["status"] == ""
-    assert detected["due"] == ""
+    assert detected["date"] == ""
     assert detected["progress"] == ""
 
 
@@ -206,7 +196,7 @@ def test_detect_falls_back_to_type_when_no_name_hint_matches(app: Flask) -> None
     core = _core(app)
     with app.app_context():
         detected = core.detect({"Name": {"type": "title"}, "Whenever": {"type": "date"}})
-    assert detected["due"] == "Whenever"
+    assert detected["date"] == "Whenever"
 
 
 def test_detect_finds_a_project_column_of_any_supported_type(app: Flask) -> None:
@@ -221,15 +211,15 @@ def test_explicit_override_beats_detection(app: Flask) -> None:
     core = _core(app)
     schema = {"Name": {"type": "title"}, "Due": {"type": "date"}, "Review on": {"type": "date"}}
     with app.app_context():
-        resolved = core.resolve_props(schema, {"due_prop": "Review on"})
-    assert resolved["due"] == "Review on"
+        resolved = core.resolve_props(schema, {"date_prop": "Review on"})
+    assert resolved["date"] == "Review on"
 
 
 def test_override_naming_a_missing_column_is_ignored(app: Flask) -> None:
     core = _core(app)
     with app.app_context():
-        resolved = core.resolve_props(SCHEMA, {"due_prop": "Nonexistent"})
-    assert resolved["due"] == "Due"
+        resolved = core.resolve_props(SCHEMA, {"date_prop": "Nonexistent"})
+    assert resolved["date"] == "Due"
 
 
 # ----- property reading --------------------------------------------------
@@ -314,6 +304,195 @@ def test_project_label_is_empty_for_an_empty_column(app: Flask) -> None:
     with app.app_context():
         assert core.project_label(page, "Project", "multi_select", {}) == ""
         assert core.project_label(page, "", "multi_select", {}) == ""
+
+
+# ----- shared plumbing: sorting + conditions -----------------------------
+
+
+def test_sort_pages_puts_blank_values_last_in_both_directions(app: Flask) -> None:
+    core = _core(app)
+    rows = [
+        {"properties": {"N": {"type": "number", "number": 2}}},
+        {"properties": {"N": {"type": "number", "number": None}}},
+        {"properties": {"N": {"type": "number", "number": 10}}},
+    ]
+    asc = [core.prop(p, "N") for p in core.sort_pages(rows, [("N", False)])]
+    desc = [core.prop(p, "N") for p in core.sort_pages(rows, [("N", True)])]
+    assert asc == [2, 10, None]
+    assert desc == [10, 2, None]
+
+
+def test_sort_value_never_compares_apples_with_oranges(app: Flask) -> None:
+    """A formula column can yield a number on one row and text on another;
+    Python would raise comparing them, so the key leads with a type rank."""
+    core = _core(app)
+    rows = [
+        {"properties": {"F": {"type": "formula", "formula": {"type": "string", "string": "b"}}}},
+        {"properties": {"F": {"type": "formula", "formula": {"type": "number", "number": 3}}}},
+        {"properties": {"F": {"type": "formula", "formula": {"type": "boolean", "boolean": True}}}},
+        {"properties": {"F": {"type": "date", "date": {"start": "2026-01-01"}}}},
+    ]
+    ordered = [core.prop(p, "F") for p in core.sort_pages(rows, [("F", False)])]
+    assert ordered == [True, 3, {"start": "2026-01-01", "end": ""}, "b"]
+
+
+def test_sort_by_a_list_column_uses_its_first_entry(app: Flask) -> None:
+    core = _core(app)
+    rows = [
+        {"properties": {"T": {"type": "multi_select", "multi_select": [{"name": "zeta"}]}}},
+        {"properties": {"T": {"type": "multi_select", "multi_select": []}}},
+        {"properties": {"T": {"type": "multi_select",
+                              "multi_select": [{"name": "Alpha"}, {"name": "omega"}]}}},
+    ]
+    assert [core.prop(p, "T") for p in core.sort_pages(rows, [("T", False)])] == [
+        ["Alpha", "omega"], ["zeta"], [],
+    ]
+
+
+def test_notion_sorts_only_for_types_notion_can_sort(app: Flask) -> None:
+    core = _core(app)
+    schema = {"Due": {"type": "date"}, "Epic": {"type": "relation"}}
+    assert core.notion_sorts(schema, [("Due", True)]) == [
+        {"property": "Due", "direction": "descending"}
+    ]
+    assert core.notion_sorts(schema, [("Epic", False)]) is None
+    assert core.notion_sorts(schema, []) is None
+    # Only the leading sortable run goes to Notion: a local primary means
+    # the secondary can't be sent either.
+    assert core.notion_sorts(schema, [("Due", False), ("Epic", False)]) == [
+        {"property": "Due", "direction": "ascending"}
+    ]
+    assert core.notion_sorts(schema, [("Epic", False), ("Due", False)]) is None
+
+
+def test_sort_settings_reads_direction_loosely(app: Flask) -> None:
+    core = _core(app)
+    assert core.sort_settings({"sort_prop": " Due ", "sort_dir": "desc"}) == [("Due", True)]
+    assert core.sort_settings({"sort_prop": "Due", "sort_dir": "Descending"}) == [("Due", True)]
+    assert core.sort_settings({"sort_prop": "Due"}) == [("Due", False)]
+    assert core.sort_settings({}) == []
+    assert core.sort_settings(
+        {"sort_prop": "Status", "sort2_prop": "Name", "sort2_dir": "desc"}
+    ) == [("Status", False), ("Name", True)]
+    assert core.sort_settings({"sort2_prop": "Name"}) == [("Name", False)]
+
+
+def test_second_sort_breaks_ties_and_keeps_empties_last(app: Flask) -> None:
+    core = _core(app)
+    def row(status, n):
+        return {"properties": {
+            "S": {"type": "select", "select": {"name": status} if status else None},
+            "N": {"type": "number", "number": n},
+        }}
+    rows = [row("b", 1), row("a", 2), row("", 9), row("b", 3), row("a", None)]
+    ordered = core.sort_pages(rows, [("S", False), ("N", True)])
+    assert [(core.prop(p, "S"), core.prop(p, "N")) for p in ordered] == [
+        ("a", 2), ("a", None), ("b", 3), ("b", 1), ("", 9),
+    ]
+
+
+def test_condition_matches_text_case_insensitively(app: Flask) -> None:
+    core = _core(app)
+    assert core.condition_matches("In Progress", "equals", "in progress")
+    assert not core.condition_matches("In Progress", "not_equals", "in progress")
+    assert core.condition_matches("Fix the panel", "contains", "PANEL")
+    assert core.condition_matches("Fix the panel", "not_contains", "domain")
+
+
+def test_condition_matches_lists_by_any_entry(app: Flask) -> None:
+    """A multi_select "is Tesserae" should hold when Tesserae is one of the
+    tags, not only when it is the only one."""
+    core = _core(app)
+    assert core.condition_matches(["Tesserae", "Home lab"], "equals", "tesserae")
+    assert not core.condition_matches(["Tesserae", "Home lab"], "not_equals", "tesserae")
+    assert core.condition_matches(["Tesserae", "Home lab"], "contains", "home")
+
+
+def test_condition_one_of_takes_a_comma_separated_list(app: Flask) -> None:
+    core = _core(app)
+    wanted = "This Week, next week ,This Quarter"
+    assert core.condition_matches("Next Week", "one_of", wanted)
+    assert core.condition_matches("this quarter", "one_of", wanted)
+    assert not core.condition_matches("Someday", "one_of", wanted)
+    assert core.condition_matches("Someday", "not_one_of", wanted)
+    assert not core.condition_matches("This Week", "not_one_of", wanted)
+    # A multi-select matches on any of its tags; an empty value is in no list.
+    assert core.condition_matches(["Backlog", "This Week"], "one_of", wanted)
+    assert not core.condition_matches([], "one_of", wanted)
+    assert core.condition_matches(None, "not_one_of", wanted)
+
+
+def test_condition_matches_numbers_numerically(app: Flask) -> None:
+    core = _core(app)
+    assert core.condition_matches(0.75, "gt", "0.5")
+    assert core.condition_matches(10, "gt", "9")          # not "1" < "9" as text
+    assert core.condition_matches(0.75, "gte", "0.75")
+    assert core.condition_matches(0.4, "lt", "0.5")
+    assert core.condition_matches(0.4, "lte", "0.4")
+    assert not core.condition_matches(None, "gt", "0")
+
+
+def test_condition_matches_dates_as_iso_prefixes(app: Flask) -> None:
+    core = _core(app)
+    due = {"start": "2026-09-12", "end": ""}
+    assert core.condition_matches(due, "lt", "2026-10")
+    assert core.condition_matches(due, "equals", "2026-09-12")
+    assert core.condition_matches(due, "lte", "today", today="2026-09-12")
+    assert not core.condition_matches(due, "lt", "today", today="2026-09-12")
+    assert core.condition_matches(due, "gte", "2026-09")
+
+
+def test_condition_matches_checkboxes_by_yes_and_no(app: Flask) -> None:
+    core = _core(app)
+    assert core.condition_matches(True, "equals", "yes")
+    assert core.condition_matches(True, "equals", "checked")
+    assert core.condition_matches(False, "equals", "no")
+    assert core.condition_matches(False, "is_empty", "")
+    assert core.condition_matches(True, "is_not_empty", "")
+
+
+def test_condition_is_empty_understands_every_shape(app: Flask) -> None:
+    core = _core(app)
+    for empty in (None, "", [], {"start": "", "end": ""}):
+        assert core.condition_matches(empty, "is_empty", ""), empty
+        assert not core.condition_matches(empty, "is_not_empty", ""), empty
+    assert core.condition_matches("x", "is_not_empty", "")
+    assert core.condition_matches(0, "is_not_empty", "")
+
+
+def test_condition_settings_reads_three_slots_and_skips_blanks(app: Flask) -> None:
+    core = _core(app)
+    assert core.condition_settings({
+        "filter_prop": "Status", "filter_op": "not_equals", "filter_value": "Done",
+        "filter2_prop": "", "filter2_op": "contains", "filter2_value": "ignored",
+        "filter3_prop": "Due", "filter3_op": "bogus", "filter3_value": "today",
+    }) == [("Status", "not_equals", "Done"), ("Due", "equals", "today")]
+    assert core.condition_settings({}) == []
+
+
+def test_read_int_clamps_and_defaults(app: Flask) -> None:
+    core = _core(app)
+    assert core.read_int({"n": "7"}, "n", 3) == 7
+    assert core.read_int({"n": "seven"}, "n", 3) == 3
+    assert core.read_int({}, "n", 3) == 3
+    assert core.read_int({"n": 0}, "n", 3) == 1
+    assert core.read_int({"n": 99}, "n", 3, hi=48) == 48
+
+
+def test_schema_with_columns_rereads_a_stale_cache_before_erroring(app: Flask) -> None:
+    core = _core(app)
+    configure_one_account(app)
+    with app.app_context():
+        core.data_dir().mkdir(parents=True, exist_ok=True)
+        (core.data_dir() / f"schema_{ACCOUNT_A}_{DS_ID}.json").write_text(
+            json.dumps({"Name": {"type": "title"}})
+        )
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            props, err = core.schema_with_columns(ACCOUNT_A, DS_ID, ["Status"])
+            assert err is None and "Status" in props
+            props, err = core.schema_with_columns(ACCOUNT_A, DS_ID, ["Nope"])
+    assert props is None
+    assert "no column called 'Nope'" in err
 
 
 # ----- choices + admin page ----------------------------------------------

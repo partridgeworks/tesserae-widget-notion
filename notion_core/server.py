@@ -1,7 +1,7 @@
 """notion_core — shared Notion connection for the notion_* widget family.
 
-No widget cell of its own. The sibling ``notion_tasks`` / ``notion_projects``
-widgets reach in through the plugin registry and call ``accounts``,
+No widget cell of its own. The sibling ``notion_tasks`` / ``notion_list`` /
+``notion_cards`` widgets reach in through the plugin registry and call ``accounts``,
 ``data_sources``, ``schema``, ``query`` and ``choices`` so all of them share
 one set of credentials, one discovery cache, and one property-detection pass.
 
@@ -26,8 +26,6 @@ On-disk shape, under ``plugins.notion_core`` in settings.json:
     accounts_json                '[{"id": "a1b2c3d4", "name": "Work"}]'
     account_<id>_token_secret    encrypted per-account token
     notion_version               optional Notion-Version override
-    api_token_secret             pre-multi-account installs (read-only,
-                                 surfaced as one account named "Notion")
 
 Caches, in this plugin's ``data_dir``:
 
@@ -41,6 +39,7 @@ here depends on Tesserae's own modules.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import secrets
 import time
@@ -74,10 +73,6 @@ MAX_PAGES = 5
 
 ACCOUNTS_FIELD = "accounts_json"
 VERSION_FIELD = "notion_version"
-# Pre-multi-account installs stored one token here. Read forever, never
-# written again: losing a working token on upgrade would be unforgivable.
-LEGACY_TOKEN_FIELD = "api_token"
-LEGACY_ACCOUNT_ID = "default"
 
 ERR_NO_ACCOUNTS = (
     "No Notion account configured yet. Add one on the Notion Core admin page "
@@ -125,34 +120,19 @@ def _token_field(account_id: str) -> str:
 
 
 def accounts() -> list[dict[str, str]]:
-    """Configured accounts as ``[{"id", "name"}]``, in display order.
-
-    A pre-multi-account install has a single ``api_token_secret`` and no
-    account list; it is surfaced as one account so existing cells keep
-    working untouched. The migration is read-side only — nothing is
-    rewritten until the operator next saves the admin form.
-    """
+    """Configured accounts as ``[{"id", "name"}]``, in display order."""
     raw = _settings().get(ACCOUNTS_FIELD)
-    entries: list[dict[str, str]] = []
-    if raw:
-        with contextlib.suppress(json.JSONDecodeError, TypeError):
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                entries = [
-                    {"id": str(e.get("id") or ""), "name": str(e.get("name") or "")}
-                    for e in parsed
-                    if isinstance(e, dict) and e.get("id")
-                ]
-    if entries:
-        return entries
-    if _legacy_token():
-        return [{"id": LEGACY_ACCOUNT_ID, "name": "Notion"}]
+    if not raw:
+        return []
+    with contextlib.suppress(json.JSONDecodeError, TypeError):
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [
+                {"id": str(e.get("id") or ""), "name": str(e.get("name") or "")}
+                for e in parsed
+                if isinstance(e, dict) and e.get("id")
+            ]
     return []
-
-
-def _legacy_token() -> str:
-    s = _settings()
-    return (s.get(f"{LEGACY_TOKEN_FIELD}_secret") or s.get(LEGACY_TOKEN_FIELD) or "").strip()
 
 
 def token_for(account_id: str) -> str:
@@ -161,12 +141,7 @@ def token_for(account_id: str) -> str:
         return ""
     s = _settings()
     field = _token_field(account_id)
-    value = (s.get(f"{field}_secret") or s.get(field) or "").strip()
-    if value:
-        return value
-    if account_id == LEGACY_ACCOUNT_ID:
-        return _legacy_token()
-    return ""
+    return (s.get(f"{field}_secret") or s.get(field) or "").strip()
 
 
 def account_name(account_id: str) -> str:
@@ -224,35 +199,17 @@ def resolve_account(options: dict[str, Any]) -> tuple[str, str | None]:
 
     **The selected database decides.** A Notion data source id belongs to
     exactly one workspace, so once a database is picked there is nothing left
-    to infer — and the host resolves the two dropdowns independently, so a
-    cell really can hold an account from one workspace and a database from
-    another (`choices()` is handed only the option key, never the cell's
-    other values, so the database list cannot be filtered to the chosen
-    account).
-
-    Letting the account option win instead was a bug: the query went out with
-    the wrong token, Notion returned 404 ``object_not_found``, and the cell
-    told the operator to share a database they had already shared.
-
-    Order, therefore: the database's owner, then the cell's explicit choice
-    (which still decides while no database is selected yet, and covers a
-    database whose discovery cache has not caught up), then the sole
-    configured account. A choice that no longer exists falls back rather than
-    failing, so deleting an account degrades placed cells to a remaining one
-    instead of breaking them.
+    to infer; there is deliberately no per-cell account option (``choices()``
+    is handed only the option key, never the cell's other values, so a
+    database list could never be filtered to a chosen account anyway). With
+    no database picked yet, the first configured account stands in so the
+    cell can at least say what is wrong.
     """
     usable = configured_accounts()
     if not usable:
         return "", config_error() or ERR_NO_ACCOUNTS
-
     owner = account_for_data_source(str(options.get("data_source") or "").strip())
-    if owner:
-        return owner, None
-
-    chosen = str(options.get("account") or "").strip()
-    if chosen and any(a["id"] == chosen for a in usable):
-        return chosen, None
-    return usable[0]["id"], None
+    return (owner or usable[0]["id"]), None
 
 
 def data_dir() -> Path:
@@ -559,6 +516,13 @@ def _prop_value(raw: dict[str, Any]) -> Any:
         return bool(value)
     if kind == "number":
         return value
+    # A formula's result comes wrapped as {"type": "string", "string": ...}
+    # / {"type": "boolean", "boolean": ...}: the two scalar shapes that are
+    # not also top-level property types.
+    if kind == "string":
+        return str(value or "")
+    if kind == "boolean":
+        return bool(value)
     if kind == "url":
         return str(value or "")
     if kind == "people":
@@ -622,11 +586,11 @@ def page_title(page_obj: dict[str, Any], schema_props: dict[str, Any] | None = N
 # the primary filter; these only break ties between same-typed columns.
 _HINTS: dict[str, tuple[str, ...]] = {
     "status": ("status", "state", "stage", "progress"),
-    "due": ("due", "deadline", "date", "when", "target"),
+    "date": ("due", "deadline", "date", "when", "target"),
     "priority": ("priority", "urgency", "importance"),
     "project": ("project", "epic", "parent", "area", "initiative"),
     "done": ("done", "complete", "completed", "finished", "checked"),
-    "assignee": ("assignee", "owner", "person", "responsible"),
+    "person": ("assignee", "owner", "person", "responsible"),
     "progress": ("progress", "complete", "completion", "percent"),
 }
 
@@ -652,22 +616,23 @@ def _pick(schema_props: dict[str, Any], types: tuple[str, ...], hints: tuple[str
 
 
 def detect(schema_props: dict[str, Any] | None) -> dict[str, str]:
-    """Guess which properties carry status / due / priority / project / done.
+    """Guess which properties carry status / date / priority / project / done.
 
     Type first, name second. Returns "" for anything absent, and every
     consumer treats a missing mapping as "don't show that bit" — so a
-    database with no due-date column renders without due dates rather than
-    erroring.
+    database with no date column renders without dates rather than
+    erroring. Roles are generic (``date``, ``person``): what a widget calls
+    them ("due", "assignee", "owner") is that widget's business.
     """
     props = schema_props if isinstance(schema_props, dict) else {}
     return {
         "title": _pick(props, ("title",), ()),
         "status": _pick(props, ("status", "select"), _HINTS["status"]),
-        "due": _pick(props, ("date",), _HINTS["due"]),
+        "date": _pick(props, ("date",), _HINTS["date"]),
         "priority": _pick(props, ("select", "status", "number"), _HINTS["priority"]),
         "project": _pick(props, PROJECT_TYPES, _HINTS["project"]),
         "done": _pick(props, ("checkbox",), _HINTS["done"]),
-        "assignee": _pick(props, ("people",), _HINTS["assignee"]),
+        "person": _pick(props, ("people",), _HINTS["person"]),
         "progress": _pick(props, ("number", "formula", "rollup"), _HINTS["progress"]),
     }
 
@@ -989,6 +954,395 @@ def row_matches(
     return False
 
 
+# ----- shared widget plumbing ------------------------------------------
+#
+# The display widgets (tasks, list, cards) all walk the same road from a
+# cell's options to a queried, filtered, sorted set of pages; only the row
+# shape each one paints differs. Everything on the common road lives here,
+# so a fix lands in all of them at once and a new view starts from the same
+# place the existing ones do.
+
+
+def read_int(options: dict[str, Any], key: str, default: int, *, lo: int = 1,
+             hi: int | None = None) -> int:
+    """An integer cell option, clamped, with the default for anything unparseable."""
+    try:
+        value = int(options.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    value = max(lo, value)
+    return min(hi, value) if hi is not None else value
+
+
+def result_cache(
+    data_dir: Path, fingerprint: Any, refresh_min: int
+) -> tuple[dict[str, Any] | None, Path]:
+    """The cached result for this exact configuration, if fresh → (result, path).
+
+    The fingerprint must contain every option that changes the rows, or
+    editing that option would keep serving the previous configuration's
+    rows until the refresh interval expired.
+    """
+    with contextlib.suppress(OSError):
+        data_dir.mkdir(parents=True, exist_ok=True)
+    slug = hashlib.sha1(json.dumps(fingerprint, sort_keys=True).encode()).hexdigest()[:12]
+    path = data_dir / f"result_{slug}.json"
+    with contextlib.suppress(OSError, json.JSONDecodeError):
+        if path.exists() and time.time() - path.stat().st_mtime < refresh_min * 60:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict):
+                return cached, path
+    return None, path
+
+
+def override_names(options: dict[str, Any]) -> list[str]:
+    """Every column name typed into a ``*_prop`` auto-detect override."""
+    return [
+        typed
+        for key in detect(None)
+        if (typed := str(options.get(f"{key}_prop") or "").strip())
+    ]
+
+
+def schema_with_columns(
+    account_id: str, ds_id: str, required: list[str]
+) -> tuple[dict[str, Any] | None, str | None]:
+    """The data source's schema, guaranteed to contain every ``required`` column.
+
+    A named column that is missing is nearly always a schema this cache has
+    not caught up with -- a column added minutes ago -- rather than a typo, so
+    the schema is re-read once before blaming the operator. If it really
+    isn't there the error names the columns that do exist. Falling through
+    to auto-detection instead would mean silently reading a column nobody
+    asked for.
+    """
+    schema_props, err = schema(account_id, ds_id)
+    if err or schema_props is None:
+        return None, err or "Couldn't read that database."
+    wanted = [name for name in dict.fromkeys(required) if name]
+    missing = [name for name in wanted if name not in schema_props]
+    if missing:
+        fresh, fresh_err = schema(account_id, ds_id, refresh=True)
+        if fresh is not None and not fresh_err:
+            schema_props = fresh
+            missing = [name for name in wanted if name not in schema_props]
+    if missing:
+        return None, unknown_column_message(missing[0], schema_props)
+    return schema_props, None
+
+
+# -- person filter --------------------------------------------------------
+
+
+def person_filter(
+    account_id: str,
+    schema_props: dict[str, Any] | None,
+    options: dict[str, Any],
+    default_column: str,
+) -> tuple[dict[str, Any], str | None]:
+    """Resolve a cell's "Only show items for" options → (filter, error).
+
+    The returned filter carries ``person`` (what was typed, "" for none),
+    ``columns``, ``person_id``, ``notion_filter`` (to hand to ``query``) and
+    ``complete`` (True when Notion could apply every clause itself).
+
+    A blank ``filter_person`` means "no filter", which is the pre-0.5
+    behaviour and stays the default: a cell that never set one is unchanged.
+    """
+    person = str(options.get("filter_person") or "").strip()
+    columns = split_columns(options.get("filter_columns"))
+    empty = {
+        "person": "", "columns": [], "person_id": "", "notion_filter": None, "complete": True,
+    }
+    if not person:
+        return empty, None
+    if not columns:
+        # Default to the detected people column, which is what "assigned to
+        # me" means in every database that has one.
+        columns = [default_column] if default_column else []
+    if not columns:
+        return empty, (
+            "This database has no people column to filter on. Name the "
+            "columns to match in the cell's Filter columns option."
+        )
+    col_err = filter_column_error(schema_props, columns)
+    if col_err:
+        return empty, col_err
+    person_err = person_filter_error(account_id, person)
+    if person_err:
+        return empty, person_err
+    person_id = resolve_person(account_id, person)
+    notion_filter, complete = build_filter(schema_props, columns, person, person_id)
+    return {
+        "person": person,
+        "columns": columns,
+        "person_id": person_id,
+        "notion_filter": notion_filter,
+        "complete": complete,
+    }, None
+
+
+def apply_person_filter(
+    pages: list[dict[str, Any]], schema_props: dict[str, Any] | None, flt: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Drop the rows a person filter rejects; a no-op for the empty filter."""
+    if not flt.get("person"):
+        return pages
+    return [
+        p for p in pages
+        if row_matches(p, schema_props, flt["columns"], flt["person"], flt["person_id"])
+    ]
+
+
+# -- sorting --------------------------------------------------------------
+
+# Property types Notion will sort by itself. Sorting server-side matters
+# because the fetch is capped: it decides WHICH rows come back, not just
+# their order. Everything else is sorted locally, after the fetch.
+SORT_SERVER_TYPES = frozenset({
+    "title", "rich_text", "number", "select", "status", "date", "checkbox",
+    "url", "email", "phone_number", "unique_id", "created_time", "last_edited_time",
+})
+
+
+SORT_SLOTS = 2
+
+
+def sort_settings(options: dict[str, Any]) -> list[tuple[str, bool]]:
+    """The cell's sort options → ``[(column, descending), ...]``, primary first.
+
+    Slots are ``sort_*`` and ``sort2_*``. An empty list means the widget's
+    own default order. A blank primary with a filled secondary still sorts,
+    by the secondary alone: whatever was typed is what the operator meant.
+    """
+    out: list[tuple[str, bool]] = []
+    for i in range(1, SORT_SLOTS + 1):
+        prefix = "sort" if i == 1 else f"sort{i}"
+        column = str(options.get(f"{prefix}_prop") or "").strip()
+        if not column:
+            continue
+        direction = str(options.get(f"{prefix}_dir") or "asc").strip().lower()
+        out.append((column, direction.startswith("desc")))
+    return out
+
+
+def notion_sorts(
+    schema_props: dict[str, Any] | None, sorts: list[tuple[str, bool]]
+) -> list[dict[str, str]] | None:
+    """A ``sorts`` payload for ``query``, or None when Notion can't help.
+
+    Only the leading run of columns Notion can sort is sent: once a column
+    has to be sorted locally, sorting the fetch by anything after it would
+    change which rows come back without making the order right.
+    """
+    out: list[dict[str, str]] = []
+    for column, descending in sorts:
+        if prop_type(schema_props, column) not in SORT_SERVER_TYPES:
+            break
+        out.append({"property": column, "direction": "descending" if descending else "ascending"})
+    return out or None
+
+
+def sort_value(page_obj: dict[str, Any], name: str) -> tuple[int, Any] | None:
+    """One property as a comparable key, or None when it is empty.
+
+    Notion values of different types can't be compared with each other (a
+    formula column can yield a number on one row and text on another), so
+    the key leads with a type rank: booleans, then numbers, then dates,
+    then text. A list sorts by its first entry, in Notion's own order.
+    """
+    value = prop(page_obj, name)
+    while isinstance(value, list):
+        value = value[0] if value else None
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return (0, int(value))
+    if isinstance(value, (int, float)):
+        return (1, float(value))
+    if isinstance(value, dict):
+        start = str(value.get("start") or "")
+        return (2, start) if start else None
+    return (3, str(value).strip().lower())
+
+
+def _sort_once(
+    pages: list[dict[str, Any]], column: str, descending: bool
+) -> list[dict[str, Any]]:
+    keyed = [(sort_value(p, column), p) for p in pages]
+    valued = [(k, p) for k, p in keyed if k is not None]
+    empties = [p for k, p in keyed if k is None]
+    valued.sort(key=lambda pair: pair[0], reverse=descending)
+    return [p for _, p in valued] + empties
+
+
+def sort_pages(
+    pages: list[dict[str, Any]], sorts: list[tuple[str, bool]]
+) -> list[dict[str, Any]]:
+    """Stable multi-column sort. Rows with no value in a column go last for
+    that column either way: a blank isn't the biggest or the smallest, it's
+    the least interesting. Applied secondary-first so ties in the primary
+    keep the secondary's order.
+    """
+    for column, descending in reversed(sorts):
+        pages = _sort_once(pages, column, descending)
+    return list(pages)
+
+
+# -- condition filter -----------------------------------------------------
+
+# One column, one condition, one value: the generic filter the cards widget
+# offers. Matched locally after the fetch, so it works for every property
+# type and never trips Notion's per-type filter grammar.
+CONDITIONS: dict[str, str] = {
+    "equals": "is",
+    "not_equals": "is not",
+    "one_of": "is one of",
+    "not_one_of": "is not one of",
+    "contains": "contains",
+    "not_contains": "does not contain",
+    "is_empty": "is empty",
+    "is_not_empty": "is not empty",
+    "gt": "is greater than / after",
+    "gte": "is at least / on or after",
+    "lt": "is less than / before",
+    "lte": "is at most / on or before",
+}
+_TRUE_WORDS = ("true", "yes", "checked", "done", "1", "on")
+
+
+def _condition_text(value: Any) -> str:
+    """A property value flattened to the text the operator would type."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, dict):
+        return str(value.get("start") or "")
+    if isinstance(value, list):
+        return ", ".join(_condition_text(v) for v in value if v not in (None, ""))
+    return str(value)
+
+
+def _is_empty(value: Any) -> bool:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, dict):
+        return not value.get("start")
+    return value is None or value == "" or value == []
+
+
+def _number(text: str) -> float | None:
+    with contextlib.suppress(ValueError, TypeError):
+        return float(str(text).strip().rstrip("%"))
+    return None
+
+
+def condition_matches(value: Any, op: str, wanted: str, *, today: str = "") -> bool:
+    """Does one property value satisfy ``<op> <wanted>``?
+
+    Case-insensitive on text. Numbers compare numerically when both sides
+    parse; dates compare as ISO strings, so ``"2026-09"`` matches a whole
+    month and the word ``today`` stands for today's date. A checkbox
+    matches ``yes``/``no`` (and their usual synonyms). ``one_of`` takes a
+    comma-separated list and holds when any entry of the value (any tag of
+    a multi-select) is in it.
+    """
+    op = str(op or "equals").strip().lower()
+    if op == "is_empty":
+        return _is_empty(value)
+    if op == "is_not_empty":
+        return not _is_empty(value)
+
+    needle = str(wanted or "").strip()
+    if needle.lower() == "today" and today:
+        needle = today
+    haystack = _condition_text(value)
+    if isinstance(value, bool):
+        haystack = "yes" if value else "no"
+        needle = "yes" if needle.lower() in _TRUE_WORDS else "no"
+    items = (
+        [_condition_text(v) for v in value if v not in (None, "")]
+        if isinstance(value, list) else [haystack]
+    )
+
+    if op == "equals":
+        return any(item.lower() == needle.lower() for item in items)
+    if op == "not_equals":
+        return not any(item.lower() == needle.lower() for item in items)
+    if op in ("one_of", "not_one_of"):
+        wanted_set = {part.lower() for part in split_columns(needle)}
+        hit = any(item.lower() in wanted_set for item in items)
+        return hit if op == "one_of" else not hit
+    if op == "contains":
+        return needle.lower() in haystack.lower()
+    if op == "not_contains":
+        return needle.lower() not in haystack.lower()
+
+    if op in ("gt", "gte", "lt", "lte"):
+        if _is_empty(value):
+            return False
+        left: Any
+        right: Any
+        left_n, right_n = _number(haystack), _number(needle)
+        if left_n is not None and right_n is not None:
+            left, right = left_n, right_n
+        elif isinstance(value, dict):
+            # A date against a shorter prefix ("2026-09"): compare at the
+            # precision the operator typed, so "before 2026-09" means
+            # "before September", not "before 2026-09-00T00:00".
+            left, right = haystack[: len(needle)], needle
+        else:
+            left, right = haystack.lower(), needle.lower()
+        if op == "gt":
+            return left > right
+        if op == "gte":
+            return left >= right
+        if op == "lt":
+            return left < right
+        return left <= right
+    return True
+
+
+# How many column-condition-value filters a cell can stack. They AND: a
+# row has to satisfy every one that names a column.
+CONDITION_SLOTS = 3
+
+
+def condition_settings(options: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """The cell's condition-filter options → ``[(column, op, value), ...]``.
+
+    Slots are ``filter_*``, ``filter2_*``, ``filter3_*``. A slot with no
+    column is skipped, so a blank second filter doesn't disable the third.
+    An unknown op falls back to ``equals`` rather than matching everything.
+    """
+    out: list[tuple[str, str, str]] = []
+    for i in range(1, CONDITION_SLOTS + 1):
+        prefix = "filter" if i == 1 else f"filter{i}"
+        column = str(options.get(f"{prefix}_prop") or "").strip()
+        if not column:
+            continue
+        op = str(options.get(f"{prefix}_op") or "equals").strip().lower()
+        out.append((
+            column,
+            op if op in CONDITIONS else "equals",
+            str(options.get(f"{prefix}_value") or "").strip(),
+        ))
+    return out
+
+
+def apply_conditions(
+    pages: list[dict[str, Any]],
+    conditions: list[tuple[str, str, str]],
+    *,
+    today: str = "",
+) -> list[dict[str, Any]]:
+    """Keep the rows that satisfy every condition."""
+    for column, op, wanted in conditions:
+        pages = [p for p in pages if condition_matches(prop(p, column), op, wanted, today=today)]
+    return pages
+
+
 # ----- status semantics -------------------------------------------------
 
 # Notion's `status` type carries a group ("To-do" / "In progress" / "Complete")
@@ -1146,7 +1500,6 @@ def blueprint() -> Blueprint:
         refresh = request.args.get("refresh") == "1"
         inspect = (request.args.get("inspect") or "").strip()
 
-        legacy_shape = not _settings().get(ACCOUNTS_FIELD)
         panes = []
         for entry in accounts():
             account_id = entry["id"]
@@ -1162,7 +1515,6 @@ def blueprint() -> Blueprint:
                     "id": account_id,
                     "name": entry["name"],
                     "has_token": has_token,
-                    "is_legacy": account_id == LEGACY_ACCOUNT_ID and legacy_shape,
                     "data_sources": listed,
                     "error": error,
                 }

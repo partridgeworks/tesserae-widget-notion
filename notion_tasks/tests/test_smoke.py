@@ -15,9 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from fake_notion import DS_ID, DS_ID_B, fake_urlopen  # noqa: E402
 from helpers import (  # noqa: E402
     ACCOUNT_A,
-    ACCOUNT_B,
     cell_data,
-    configure_legacy_account,
     configure_one_account,
     configure_two_accounts,
     render,
@@ -81,7 +79,7 @@ def test_relation_project_resolves_to_the_related_page_title(
     resolved to the related page's title."""
     configure_two_accounts(app)
     data = cell_data(
-        render(client, PLUGIN, "lg", account=ACCOUNT_B, data_source=DS_ID_B)
+        render(client, PLUGIN, "lg", data_source=DS_ID_B)
     )
     assert data["items"][0]["project"] == "Migration epic"
 
@@ -179,52 +177,14 @@ def test_single_account_is_used_without_the_cell_naming_it(
     assert not data.get("error")
 
 
-def test_stale_account_id_falls_back_to_the_database_owner(
-    app: Flask, client: FlaskClient
-) -> None:
-    """A cell pointing at a deleted account should degrade to the account
-    that owns its database rather than break."""
-    configure_two_accounts(app)
-    data = cell_data(
-        render(client, PLUGIN, "lg", account="deleted-account", data_source=DS_ID_B)
-    )
-    assert data["account"] == "Personal"
-
-
-def test_legacy_single_token_install_still_renders(app: Flask, client: FlaskClient) -> None:
-    """Upgrading from the single-token version must not break placed cells."""
-    configure_legacy_account(app)
-    data = cell_data(render(client, PLUGIN, "lg"))
-    assert data["account"] == "Notion"
-    assert not data.get("error")
-    assert data["items"]
-
-
 def test_neither_widget_declares_an_account_option(app: Flask) -> None:
     """Regression guard. The picker looked like it filtered the Database list
     and could not (the host gives choices() only the option key), and once the
     database decided the account it did nothing at all. It must not come back."""
     registry = app.config["PLUGIN_REGISTRY"]
-    for plugin_id in ("notion_tasks", "notion_projects"):
+    for plugin_id in ("notion_tasks", "notion_list", "notion_cards"):
         options = registry.get(plugin_id).manifest.get("cell_options", [])
         assert "account" not in {o["name"] for o in options}, plugin_id
-
-
-def test_mismatched_account_and_database_still_renders(
-    app: Flask, client: FlaskClient
-) -> None:
-    """The two pickers are resolved independently by the host, so a cell can
-    hold an account from one workspace and a database from another. A Notion
-    data source id belongs to exactly one workspace, so the database is the
-    unambiguous signal and must win -- otherwise the query 404s and the cell
-    blames the user for not sharing a database they already shared."""
-    configure_two_accounts(app)
-    data = cell_data(
-        render(client, PLUGIN, "lg", account=ACCOUNT_A, data_source=DS_ID_B)
-    )
-    assert not data.get("error"), data.get("error")
-    assert data["account"] == "Personal"
-    assert data["items"][0]["title"] == "Second workspace task"
 
 
 # ----- stale schema cache ------------------------------------------------
@@ -400,3 +360,35 @@ def test_empty_result_names_the_filter(app: Flask, client: FlaskClient) -> None:
     data = cell_data(render(client, PLUGIN, "lg", filter_person="Nobody At All"))
     assert data["empty"] is True
     assert data["filtered_by"] == "Nobody At All"
+
+
+# ----- sorting -----------------------------------------------------------
+
+
+def test_sort_by_a_column_replaces_the_urgency_order(app: Flask, client: FlaskClient) -> None:
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", sort_prop="Name", sort_dir="desc"))
+    assert [i["title"] for i in data["items"]] == [
+        "Write the Notion widget README",
+        "Unfiled odd job",
+        "Renew the domain",
+        "Fix the panel refresh loop",
+    ]
+    assert data["sorted_by"] == ["Name"]
+
+
+def test_sort_by_a_column_keeps_groups_in_that_order(app: Flask, client: FlaskClient) -> None:
+    """With an explicit sort the groups follow it too, rather than being
+    re-ranked by urgency: the operator asked for that order, so the first
+    task's project comes first. "No project" still goes last."""
+    configure_one_account(app)
+    data = cell_data(
+        render(client, PLUGIN, "lg", group_by="project", sort_prop="Name", sort_dir="desc")
+    )
+    assert [g["name"] for g in data["groups"]] == ["Tesserae", "Life admin", "No project"]
+
+
+def test_sort_by_a_missing_column_says_so(app: Flask, client: FlaskClient) -> None:
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", sort_prop="Nope"))
+    assert "no column called 'Nope'" in data["error"]

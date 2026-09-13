@@ -1,10 +1,10 @@
 {
   "tesserae_compat": "1.x",
-  "name": "Notion, Projects",
-  "version": "0.5.1",
+  "name": "Notion, List",
+  "version": "0.6.0",
   "kind": "widget",
-  "description": "Active projects from any Notion database, with status, owner, target date and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and owner. Supports several Notion accounts. Requires the Notion Core plugin.",
-  "icon": "ph-kanban",
+  "description": "Rows from any Notion database, one line each: title, status, date, person, and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and person, so it works on your schema without configuration. Sort by any column. Supports several Notion accounts. Requires the Notion Core plugin.",
+  "icon": "ph-list-bullets",
   "supports": {
     "sizes": [
       "xs",
@@ -33,13 +33,13 @@
       "name": "title",
       "type": "string",
       "label": "Title",
-      "placeholder": "Projects",
-      "default": "Projects"
+      "placeholder": "List",
+      "default": "List"
     },
     {
       "name": "limit",
       "type": "select",
-      "label": "Max projects shown",
+      "label": "Max rows shown",
       "default": "6",
       "choices": [
         {
@@ -87,22 +87,71 @@
       "default": true
     },
     {
-      "name": "show_due",
+      "name": "show_date",
       "type": "boolean",
-      "label": "Show target dates",
+      "label": "Show dates",
       "default": true
     },
     {
-      "name": "show_owner",
+      "name": "show_person",
       "type": "boolean",
-      "label": "Show owner",
+      "label": "Show person",
       "default": false
     },
     {
       "name": "show_completed",
       "type": "boolean",
-      "label": "Include completed projects",
-      "default": false
+      "label": "Include completed rows",
+      "default": false,
+      "help": "Off by default: a row whose status is Done (or whose done checkbox is ticked) is left out. Turn on to list everything."
+    },
+    {
+      "name": "sort_prop",
+      "type": "string",
+      "label": "Sort by column (blank = default order)",
+      "default": "",
+      "placeholder": "Priority",
+      "help": "Type a Notion column name exactly. Blank keeps the built-in order: overdue first, then by date, then by progress. Rows with nothing in the column go last."
+    },
+    {
+      "name": "sort_dir",
+      "type": "select",
+      "label": "Sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
+    },
+    {
+      "name": "sort2_prop",
+      "type": "string",
+      "label": "Then sort by column (blank = none)",
+      "default": "",
+      "placeholder": "Name",
+      "help": "Breaks ties in the first sort. Type a Notion column name exactly."
+    },
+    {
+      "name": "sort2_dir",
+      "type": "select",
+      "label": "Then sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
     },
     {
       "name": "filter_person",
@@ -135,16 +184,17 @@
       "help": "A number, formula or rollup. Percent-formatted values (0-1) and whole percentages (0-100) are both understood."
     },
     {
-      "name": "due_prop",
+      "name": "date_prop",
       "type": "string",
-      "label": "Target date column (blank = auto-detect)",
+      "label": "Date column (blank = auto-detect)",
       "default": ""
     },
     {
-      "name": "assignee_prop",
+      "name": "person_prop",
       "type": "string",
-      "label": "Owner column (blank = auto-detect)",
-      "default": ""
+      "label": "Person column (blank = auto-detect)",
+      "default": "",
+      "help": "A people column. Also the default column for 'Only show items for'."
     },
     {
       "name": "done_prop",
@@ -156,17 +206,17 @@
   "fragments": [
     {
       "id": "full",
-      "label": "Project list",
+      "label": "Row list",
       "w": 320,
       "h": 220,
-      "icon": "ph-kanban"
+      "icon": "ph-list-bullets"
     },
     {
       "id": "count",
-      "label": "Active count",
+      "label": "Row count",
       "w": 120,
       "h": 120,
-      "icon": "ph-briefcase"
+      "icon": "ph-hash"
     }
   ],
   "data_schema": {
@@ -179,12 +229,12 @@
       {
         "name": "total",
         "type": "num",
-        "label": "Active projects"
+        "label": "Rows (after filters)"
       },
       {
         "name": "overdue_count",
         "type": "num",
-        "label": "Past target date"
+        "label": "Past their date"
       },
       {
         "name": "avg_progress",
@@ -194,59 +244,65 @@
       {
         "name": "items",
         "type": "arr",
-        "label": "Projects"
+        "label": "Rows"
       },
       {
         "name": "filtered_by",
         "type": "str",
         "label": "Filter in force"
+      },
+      {
+        "name": "sorted_by",
+        "type": "arr",
+        "label": "Sort columns in force"
       }
     ],
     "sample": {
-      "title": "Projects",
+      "title": "List",
       "items": [
         {
           "title": "Tesserae panel rollout",
           "status": "In progress",
           "done": false,
-          "due_date": "2026-09-08",
           "overdue": true,
-          "owner": "Carl",
           "progress": 0.75,
-          "url": ""
+          "url": "",
+          "date": "2026-09-08",
+          "person": "Carl"
         },
         {
           "title": "Notion widget bundle",
           "status": "In progress",
           "done": false,
-          "due_date": "2026-09-20",
           "overdue": false,
-          "owner": "Carl",
           "progress": 0.4,
-          "url": ""
+          "url": "",
+          "date": "2026-09-20",
+          "person": "Carl"
         },
         {
           "title": "Garden studio",
           "status": "Planning",
           "done": false,
-          "due_date": "",
           "overdue": false,
-          "owner": "",
           "progress": 0.1,
-          "url": ""
+          "url": "",
+          "date": "",
+          "person": ""
         }
       ],
       "total": 3,
       "shown": 3,
       "overdue_count": 1,
       "empty": false,
-      "has_due": true,
       "has_status": true,
       "has_progress": true,
       "avg_progress": 0.4166,
       "fetched_at": 1757500000,
       "account": "Work",
-      "filtered_by": ""
+      "filtered_by": "",
+      "sorted_by": [],
+      "has_date": true
     }
   }
 }

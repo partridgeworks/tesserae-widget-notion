@@ -28,19 +28,11 @@
   <section class="card">
     {{ card_head(pane.name or 'Notion account', icon_name='notion-logo', level=2) }}
 
-    {% if pane.is_legacy %}
-    <p class="field-help">
-      <i class="ph-bold ph-info" aria-hidden="true"></i>
-      Carried over from the single-token setup. It keeps working as-is; saving
-      this form writes it into the new multi-account shape.
-    </p>
-    {% endif %}
-
     <div class="field">
       <label for="name_{{ pane.id }}">Friendly name</label>
       <input type="text" id="name_{{ pane.id }}" name="name_{{ pane.id }}"
              value="{{ pane.name }}" placeholder="Work">
-      <p class="field-help">What the account is called in the cell editor's account picker.</p>
+      <p class="field-help">How this account is labelled in the cell editor's Database dropdown.</p>
     </div>
 
     <div class="field">

@@ -1,0 +1,782 @@
+{
+  "tesserae_compat": "1.x",
+  "name": "Notion, Cards",
+  "version": "0.6.0",
+  "kind": "widget",
+  "description": "Records from any Notion database as a grid of bordered cards. Choose up to five columns to show on each card, each at its own size, with or without its name; how a column is drawn follows its Notion type. Filter by up to three column conditions, sort by any column, group under headings, cap the count. Supports several Notion accounts. Requires the Notion Core plugin.",
+  "icon": "ph-cards",
+  "supports": {
+    "sizes": [
+      "xs",
+      "sm",
+      "md",
+      "lg"
+    ]
+  },
+  "requires": [
+    "network:api.notion.com",
+    "settings:plugin/notion_core"
+  ],
+  "render": {
+    "needs_network": false
+  },
+  "cell_options": [
+    {
+      "name": "data_source",
+      "type": "select",
+      "label": "Database",
+      "default": "",
+      "choices_from": "data_sources",
+      "help": "Every database your Notion accounts can see, prefixed by account name when more than one is configured. Picking one also selects that account: a Notion database belongs to exactly one workspace, so there is nothing else to choose. Nothing listed? Open the database in Notion, then \u2022\u2022\u2022 \u2192 Connections \u2192 add your integration."
+    },
+    {
+      "name": "title",
+      "type": "string",
+      "label": "Title",
+      "placeholder": "Cards",
+      "default": "Cards"
+    },
+    {
+      "name": "columns",
+      "type": "number",
+      "label": "Columns",
+      "default": 2,
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "help": "Cards per row. Rows follow from this and the record limit. Small cells cap it: 1 at xs, 2 at sm, 4 at md."
+    },
+    {
+      "name": "limit",
+      "type": "number",
+      "label": "Max records shown",
+      "default": 6,
+      "min": 1,
+      "max": 48,
+      "step": 1,
+      "help": "Every card gets an equal share of the cell, so more records means smaller cards."
+    },
+    {
+      "name": "refresh_min",
+      "type": "select",
+      "label": "Refresh",
+      "default": "15",
+      "choices": [
+        {
+          "value": "5",
+          "label": "Every 5 min"
+        },
+        {
+          "value": "15",
+          "label": "Every 15 min"
+        },
+        {
+          "value": "60",
+          "label": "Hourly"
+        }
+      ]
+    },
+    {
+      "name": "prop1",
+      "type": "string",
+      "label": "Property 1",
+      "default": "",
+      "placeholder": "Name",
+      "help": "Type a Notion column name exactly (the Notion Core admin page's Inspect columns link lists them). How it is drawn follows its type: a checkbox as a checkbox, a select or status as badges, a date as a date, anything else as text. Leave every property blank to show just the title column. The two options below only apply once this is set."
+    },
+    {
+      "name": "prop1_size",
+      "type": "select",
+      "label": "Property 1 size",
+      "default": "m",
+      "choices": [
+        {
+          "value": "xs",
+          "label": "XS"
+        },
+        {
+          "value": "s",
+          "label": "S"
+        },
+        {
+          "value": "m",
+          "label": "M"
+        },
+        {
+          "value": "l",
+          "label": "L"
+        },
+        {
+          "value": "xl",
+          "label": "XL"
+        }
+      ]
+    },
+    {
+      "name": "prop1_lines",
+      "type": "number",
+      "label": "Property 1 max lines",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+    },
+    {
+      "name": "prop1_show_name",
+      "type": "boolean",
+      "label": "Property 1: show field name",
+      "default": false
+    },
+    {
+      "name": "prop2",
+      "type": "string",
+      "label": "Property 2",
+      "default": "",
+      "placeholder": "",
+      "help": "Blank = not shown. The two options below only apply once Property 2 is set."
+    },
+    {
+      "name": "prop2_size",
+      "type": "select",
+      "label": "Property 2 size",
+      "default": "m",
+      "choices": [
+        {
+          "value": "xs",
+          "label": "XS"
+        },
+        {
+          "value": "s",
+          "label": "S"
+        },
+        {
+          "value": "m",
+          "label": "M"
+        },
+        {
+          "value": "l",
+          "label": "L"
+        },
+        {
+          "value": "xl",
+          "label": "XL"
+        }
+      ]
+    },
+    {
+      "name": "prop2_lines",
+      "type": "number",
+      "label": "Property 2 max lines",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+    },
+    {
+      "name": "prop2_show_name",
+      "type": "boolean",
+      "label": "Property 2: show field name",
+      "default": false
+    },
+    {
+      "name": "prop3",
+      "type": "string",
+      "label": "Property 3",
+      "default": "",
+      "placeholder": "",
+      "help": "Blank = not shown. The two options below only apply once Property 3 is set."
+    },
+    {
+      "name": "prop3_size",
+      "type": "select",
+      "label": "Property 3 size",
+      "default": "m",
+      "choices": [
+        {
+          "value": "xs",
+          "label": "XS"
+        },
+        {
+          "value": "s",
+          "label": "S"
+        },
+        {
+          "value": "m",
+          "label": "M"
+        },
+        {
+          "value": "l",
+          "label": "L"
+        },
+        {
+          "value": "xl",
+          "label": "XL"
+        }
+      ]
+    },
+    {
+      "name": "prop3_lines",
+      "type": "number",
+      "label": "Property 3 max lines",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+    },
+    {
+      "name": "prop3_show_name",
+      "type": "boolean",
+      "label": "Property 3: show field name",
+      "default": false
+    },
+    {
+      "name": "prop4",
+      "type": "string",
+      "label": "Property 4",
+      "default": "",
+      "placeholder": "",
+      "help": "Blank = not shown. The two options below only apply once Property 4 is set."
+    },
+    {
+      "name": "prop4_size",
+      "type": "select",
+      "label": "Property 4 size",
+      "default": "m",
+      "choices": [
+        {
+          "value": "xs",
+          "label": "XS"
+        },
+        {
+          "value": "s",
+          "label": "S"
+        },
+        {
+          "value": "m",
+          "label": "M"
+        },
+        {
+          "value": "l",
+          "label": "L"
+        },
+        {
+          "value": "xl",
+          "label": "XL"
+        }
+      ]
+    },
+    {
+      "name": "prop4_lines",
+      "type": "number",
+      "label": "Property 4 max lines",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+    },
+    {
+      "name": "prop4_show_name",
+      "type": "boolean",
+      "label": "Property 4: show field name",
+      "default": false
+    },
+    {
+      "name": "prop5",
+      "type": "string",
+      "label": "Property 5",
+      "default": "",
+      "placeholder": "",
+      "help": "Blank = not shown. The two options below only apply once Property 5 is set."
+    },
+    {
+      "name": "prop5_size",
+      "type": "select",
+      "label": "Property 5 size",
+      "default": "m",
+      "choices": [
+        {
+          "value": "xs",
+          "label": "XS"
+        },
+        {
+          "value": "s",
+          "label": "S"
+        },
+        {
+          "value": "m",
+          "label": "M"
+        },
+        {
+          "value": "l",
+          "label": "L"
+        },
+        {
+          "value": "xl",
+          "label": "XL"
+        }
+      ]
+    },
+    {
+      "name": "prop5_lines",
+      "type": "number",
+      "label": "Property 5 max lines",
+      "default": 1,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+    },
+    {
+      "name": "prop5_show_name",
+      "type": "boolean",
+      "label": "Property 5: show field name",
+      "default": false
+    },
+    {
+      "name": "group_prop",
+      "type": "string",
+      "label": "Group by column (blank = no grouping)",
+      "default": "",
+      "placeholder": "Status",
+      "help": "Type a Notion column name exactly. Cards collect under a heading per value, in the order they are sorted; cards with nothing in the column go last under 'No <column>'. A column with several values files the card under the first."
+    },
+    {
+      "name": "filter_prop",
+      "type": "string",
+      "label": "Filter 1: column (blank = no filter)",
+      "default": "",
+      "placeholder": "Status",
+      "help": "Type a Notion column name exactly. The condition and value below only apply once this is set. Every filter that names a column must hold."
+    },
+    {
+      "name": "filter_op",
+      "type": "select",
+      "label": "Filter 1: condition",
+      "default": "equals",
+      "choices": [
+        {
+          "value": "equals",
+          "label": "is"
+        },
+        {
+          "value": "not_equals",
+          "label": "is not"
+        },
+        {
+          "value": "one_of",
+          "label": "is one of (comma-separated)"
+        },
+        {
+          "value": "not_one_of",
+          "label": "is not one of (comma-separated)"
+        },
+        {
+          "value": "contains",
+          "label": "contains"
+        },
+        {
+          "value": "not_contains",
+          "label": "does not contain"
+        },
+        {
+          "value": "is_empty",
+          "label": "is empty"
+        },
+        {
+          "value": "is_not_empty",
+          "label": "is not empty"
+        },
+        {
+          "value": "gt",
+          "label": "is greater than / is after"
+        },
+        {
+          "value": "gte",
+          "label": "is at least / is on or after"
+        },
+        {
+          "value": "lt",
+          "label": "is less than / is before"
+        },
+        {
+          "value": "lte",
+          "label": "is at most / is on or before"
+        }
+      ]
+    },
+    {
+      "name": "filter_value",
+      "type": "string",
+      "label": "Filter 1: value",
+      "default": "",
+      "placeholder": "Done",
+      "help": "Matched case-insensitively. For 'is one of', a comma-separated list: This Week, Next Week. For a date column, type a date (2026-09-30), a month (2026-09) or the word 'today'. For a checkbox, 'yes' or 'no'. Not used by 'is empty' / 'is not empty'."
+    },
+    {
+      "name": "filter2_prop",
+      "type": "string",
+      "label": "Filter 2: column (blank = unused)",
+      "default": "",
+      "placeholder": "",
+      "help": "A further condition, combined with the others: a record must satisfy all of them."
+    },
+    {
+      "name": "filter2_op",
+      "type": "select",
+      "label": "Filter 2: condition",
+      "default": "equals",
+      "choices": [
+        {
+          "value": "equals",
+          "label": "is"
+        },
+        {
+          "value": "not_equals",
+          "label": "is not"
+        },
+        {
+          "value": "one_of",
+          "label": "is one of (comma-separated)"
+        },
+        {
+          "value": "not_one_of",
+          "label": "is not one of (comma-separated)"
+        },
+        {
+          "value": "contains",
+          "label": "contains"
+        },
+        {
+          "value": "not_contains",
+          "label": "does not contain"
+        },
+        {
+          "value": "is_empty",
+          "label": "is empty"
+        },
+        {
+          "value": "is_not_empty",
+          "label": "is not empty"
+        },
+        {
+          "value": "gt",
+          "label": "is greater than / is after"
+        },
+        {
+          "value": "gte",
+          "label": "is at least / is on or after"
+        },
+        {
+          "value": "lt",
+          "label": "is less than / is before"
+        },
+        {
+          "value": "lte",
+          "label": "is at most / is on or before"
+        }
+      ]
+    },
+    {
+      "name": "filter2_value",
+      "type": "string",
+      "label": "Filter 2: value",
+      "default": ""
+    },
+    {
+      "name": "filter3_prop",
+      "type": "string",
+      "label": "Filter 3: column (blank = unused)",
+      "default": "",
+      "placeholder": "",
+      "help": "A further condition, combined with the others: a record must satisfy all of them."
+    },
+    {
+      "name": "filter3_op",
+      "type": "select",
+      "label": "Filter 3: condition",
+      "default": "equals",
+      "choices": [
+        {
+          "value": "equals",
+          "label": "is"
+        },
+        {
+          "value": "not_equals",
+          "label": "is not"
+        },
+        {
+          "value": "one_of",
+          "label": "is one of (comma-separated)"
+        },
+        {
+          "value": "not_one_of",
+          "label": "is not one of (comma-separated)"
+        },
+        {
+          "value": "contains",
+          "label": "contains"
+        },
+        {
+          "value": "not_contains",
+          "label": "does not contain"
+        },
+        {
+          "value": "is_empty",
+          "label": "is empty"
+        },
+        {
+          "value": "is_not_empty",
+          "label": "is not empty"
+        },
+        {
+          "value": "gt",
+          "label": "is greater than / is after"
+        },
+        {
+          "value": "gte",
+          "label": "is at least / is on or after"
+        },
+        {
+          "value": "lt",
+          "label": "is less than / is before"
+        },
+        {
+          "value": "lte",
+          "label": "is at most / is on or before"
+        }
+      ]
+    },
+    {
+      "name": "filter3_value",
+      "type": "string",
+      "label": "Filter 3: value",
+      "default": ""
+    },
+    {
+      "name": "sort_prop",
+      "type": "string",
+      "label": "Sort by column (blank = Notion's order)",
+      "default": "",
+      "placeholder": "Due",
+      "help": "Type a Notion column name exactly. Records with nothing in the column go last."
+    },
+    {
+      "name": "sort_dir",
+      "type": "select",
+      "label": "Sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
+    },
+    {
+      "name": "sort2_prop",
+      "type": "string",
+      "label": "Then sort by column (blank = none)",
+      "default": "",
+      "placeholder": "Name",
+      "help": "Breaks ties in the first sort. Type a Notion column name exactly."
+    },
+    {
+      "name": "sort2_dir",
+      "type": "select",
+      "label": "Then sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
+    },
+    {
+      "name": "filter_person",
+      "type": "string",
+      "label": "Only show items for",
+      "default": "",
+      "placeholder": "me",
+      "help": "Leave blank to show everything. Type 'me' for whoever owns the Notion token (exact, and filtered by Notion itself), or a person's name as it appears in Notion."
+    },
+    {
+      "name": "filter_columns",
+      "type": "string",
+      "label": "Filter columns (blank = the people column)",
+      "default": "",
+      "placeholder": "Assignee, Collaborators",
+      "help": "Comma-separated Notion column names. A row is kept if ANY of them matches. Blank uses the auto-detected people column. Only used when 'Only show items for' is set."
+    }
+  ],
+  "data_schema": {
+    "fields": [
+      {
+        "name": "title",
+        "type": "str",
+        "label": "Title"
+      },
+      {
+        "name": "total",
+        "type": "num",
+        "label": "Records (after filters)"
+      },
+      {
+        "name": "shown",
+        "type": "num",
+        "label": "Records shown"
+      },
+      {
+        "name": "columns",
+        "type": "num",
+        "label": "Columns"
+      },
+      {
+        "name": "cards",
+        "type": "arr",
+        "label": "Cards"
+      },
+      {
+        "name": "condition",
+        "type": "str",
+        "label": "Filter in force"
+      },
+      {
+        "name": "filtered_by",
+        "type": "str",
+        "label": "Person filter in force"
+      },
+      {
+        "name": "sorted_by",
+        "type": "arr",
+        "label": "Sort columns in force"
+      },
+      {
+        "name": "groups",
+        "type": "arr",
+        "label": "Cards grouped by column"
+      }
+    ],
+    "sample": {
+      "title": "Cards",
+      "cards": [
+        {
+          "title": "Tesserae panel rollout",
+          "url": "",
+          "fields": [
+            {
+              "name": "Name",
+              "type": "title",
+              "kind": "text",
+              "value": "Tesserae panel rollout",
+              "size": "l",
+              "show_name": false,
+              "lines": 1
+            },
+            {
+              "name": "Status",
+              "type": "status",
+              "kind": "badge",
+              "value": [
+                "In progress"
+              ],
+              "size": "s",
+              "show_name": true,
+              "lines": 1
+            },
+            {
+              "name": "Due",
+              "type": "date",
+              "kind": "date",
+              "value": {
+                "start": "2026-09-08",
+                "end": ""
+              },
+              "size": "m",
+              "show_name": true,
+              "lines": 1
+            },
+            {
+              "name": "Done",
+              "type": "checkbox",
+              "kind": "checkbox",
+              "value": false,
+              "size": "m",
+              "show_name": true,
+              "lines": 1
+            }
+          ]
+        },
+        {
+          "title": "Notion widget bundle",
+          "url": "",
+          "fields": [
+            {
+              "name": "Name",
+              "type": "title",
+              "kind": "text",
+              "value": "Notion widget bundle",
+              "size": "l",
+              "show_name": false,
+              "lines": 1
+            },
+            {
+              "name": "Status",
+              "type": "status",
+              "kind": "badge",
+              "value": [
+                "Planning"
+              ],
+              "size": "s",
+              "show_name": true,
+              "lines": 1
+            },
+            {
+              "name": "Due",
+              "type": "date",
+              "kind": "date",
+              "value": {
+                "start": "2026-09-20",
+                "end": ""
+              },
+              "size": "m",
+              "show_name": true,
+              "lines": 1
+            },
+            {
+              "name": "Done",
+              "type": "checkbox",
+              "kind": "checkbox",
+              "value": false,
+              "size": "m",
+              "show_name": true,
+              "lines": 1
+            }
+          ]
+        }
+      ],
+      "total": 2,
+      "shown": 2,
+      "columns": 2,
+      "empty": false,
+      "account": "Work",
+      "filtered_by": "",
+      "condition": "",
+      "sorted_by": [],
+      "fetched_at": 1757500000,
+      "group_by": ""
+    }
+  }
+}

@@ -45,13 +45,6 @@ def configure_two_accounts(app: Flask) -> None:
     )
 
 
-def configure_legacy_account(app: Flask) -> None:
-    """The pre-multi-account shape: one bare token, no account list."""
-    app.config["SETTINGS_STORE"].patch_section(
-        "plugins", {"notion_core": {"api_token_secret": TOKEN_A}}
-    )
-
-
 def render(client: FlaskClient, plugin: str, size: str = "md", **opts: Any) -> str:
     """Render one cell. ``/_test/render`` takes cell options as a single
     ``?opts=<json>`` blob, not as individual query parameters."""

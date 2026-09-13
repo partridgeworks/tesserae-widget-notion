@@ -1,9 +1,11 @@
-"""notion_projects — active projects from a Notion data source.
+"""notion_list — rows from any Notion database, one line each.
 
 Sibling of ``notion_tasks``; same core, different question. Tasks answer
-"what do I do next"; projects answer "what's in flight and how far along".
-So this one leads with status and progress rather than due dates, and keeps
-completed work out of the way by default.
+"what do I do next"; a list answers "what's in this database and how is
+each row getting on": status, a date, a person, and a progress bar where
+the database tracks one. Nothing here assumes the rows are projects, or
+tasks, or anything else: any database with a title column renders, and
+every other column is optional.
 
 Never raises: returns ``{"error": "friendly message"}``.
 """
@@ -11,7 +13,6 @@ Never raises: returns ``{"error": "friendly message"}``.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import time
 from datetime import date
@@ -20,7 +21,8 @@ from typing import Any
 
 from flask import current_app
 
-PLUGIN_ID = "notion_projects"
+PLUGIN_ID = "notion_list"
+DEFAULT_TITLE = "List"
 ERR_NO_CORE = (
     "The Notion Core plugin isn't installed. Install the whole Notion bundle, "
     "not just this widget."
@@ -77,16 +79,16 @@ def _row(
     checkbox = core.prop(page, props["done"]) if props["done"] else None
     done = core.is_done(status, checkbox)
 
-    due_raw = core.prop(page, props["due"]) if props["due"] else None
-    due_date = ""
-    if isinstance(due_raw, dict):
-        due_date = str(due_raw.get("start") or "")[:10]
+    date_raw = core.prop(page, props["date"]) if props["date"] else None
+    date = ""
+    if isinstance(date_raw, dict):
+        date = str(date_raw.get("start") or "")[:10]
 
-    owner = ""
-    if props["assignee"]:
-        people = core.prop(page, props["assignee"])
+    person = ""
+    if props["person"]:
+        people = core.prop(page, props["person"])
         if isinstance(people, list) and people:
-            owner = str(people[0] or "")
+            person = str(people[0] or "")
 
     progress = _progress(core.prop(page, props["progress"])) if props["progress"] else None
 
@@ -94,24 +96,25 @@ def _row(
         "title": core.page_title(page, schema_props) or "Untitled",
         "status": status,
         "done": done,
-        "due_date": due_date,
-        "overdue": bool(due_date) and not done and due_date < today,
-        "owner": owner,
+        "date": date,
+        "overdue": bool(date) and not done and date < today,
+        "person": person,
         "progress": progress,
         "url": str(page.get("url") or ""),
     }
 
 
 def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
-    """Overdue first, then dated by soonest, then furthest along, then title.
+    """The default order: overdue first, then dated by soonest, then
+    furthest along, then title.
 
-    Progress descending puts nearly-finished projects above barely-started
+    Progress descending puts nearly-finished rows above barely-started
     ones, which is the order you want when deciding what to push over the
-    line this week.
+    line this week. A cell that names a sort column skips this entirely.
     """
     return (
         0 if item["overdue"] else 1,
-        item["due_date"] or "9999-12-31",
+        item["date"] or "9999-12-31",
         -(item["progress"] if item["progress"] is not None else -1),
         item["title"].lower(),
     )
@@ -120,7 +123,7 @@ def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
 def fetch(
     options: dict[str, Any], settings: dict[str, Any], *, ctx: dict[str, Any]
 ) -> dict[str, Any]:
-    title = str(options.get("title") or "").strip() or "Projects"
+    title = str(options.get("title") or "").strip() or DEFAULT_TITLE
     ds_id = str(options.get("data_source") or "").strip()
 
     core = _core()
@@ -132,111 +135,58 @@ def fetch(
     if not ds_id:
         return {"error": ERR_NO_DATABASE, "title": title}
 
-    try:
-        limit = max(1, int(options.get("limit", 6)))
-    except (TypeError, ValueError):
-        limit = 6
-    try:
-        refresh_min = max(1, int(options.get("refresh_min", 15)))
-    except (TypeError, ValueError):
-        refresh_min = 15
-
+    limit = core.read_int(options, "limit", 6)
+    refresh_min = core.read_int(options, "refresh_min", 15)
     show_completed = bool(options.get("show_completed"))
+    sorts = core.sort_settings(options)
     # Read here, not where they are used: the cache fingerprint below is
     # built before the schema is fetched, and must include the filter or
     # changing it would serve rows from the previous one.
     filter_person = str(options.get("filter_person") or "").strip()
     filter_columns = core.split_columns(options.get("filter_columns"))
-
-    data_dir = Path(ctx.get("data_dir") or ".")
-    with contextlib.suppress(OSError):
-        data_dir.mkdir(parents=True, exist_ok=True)
     overrides = {k: v for k, v in sorted(options.items()) if k.endswith("_prop")}
-    fingerprint = json.dumps(
-        [account_id, ds_id, limit, show_completed, overrides,
+
+    cached, result_path = core.result_cache(
+        Path(ctx.get("data_dir") or "."),
+        [account_id, ds_id, limit, show_completed, overrides, sorts,
          filter_person, filter_columns],
-        sort_keys=True,
+        refresh_min,
     )
-    slug = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
-    result_path = data_dir / f"result_{slug}.json"
+    if cached is not None:
+        cached["title"] = title
+        return cached
 
-    now = int(time.time())
-    if result_path.exists() and now - int(result_path.stat().st_mtime) < refresh_min * 60:
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            cached = json.loads(result_path.read_text(encoding="utf-8"))
-            cached["title"] = title
-            return cached  # type: ignore[no-any-return]
-
-    schema_props, err = core.schema(account_id, ds_id)
+    schema_props, err = core.schema_with_columns(
+        account_id, ds_id, [*core.override_names(options), *(c for c, _ in sorts), *filter_columns]
+    )
     if err or schema_props is None:
         return {"error": err or "Couldn't read that database.", "title": title}
-    # An override that doesn't match is nearly always a schema this cache has
-    # not caught up with -- a column added minutes ago -- rather than a typo.
-    # Re-read once before blaming the operator, then say so plainly if it
-    # really isn't there. Falling through to auto-detection instead means
-    # silently reading a column nobody asked for.
-    missing = core.unmatched_overrides(schema_props, options)
-    if missing:
-        fresh, fresh_err = core.schema(account_id, ds_id, refresh=True)
-        if fresh is not None and not fresh_err:
-            schema_props = fresh
-            missing = core.unmatched_overrides(schema_props, options)
-    if missing:
-        return {
-            "error": core.unknown_column_message(missing[0][1], schema_props),
-            "title": title,
-        }
     props = core.resolve_props(schema_props, options)
 
-    # ---- filter -------------------------------------------------------
-    # A blank filter_person means "no filter", which is the pre-0.5 behaviour
-    # and stays the default: a cell that never set one is unchanged.
-    if filter_person and not filter_columns:
-        # Default to the detected people column, which is what "assigned to
-        # me" means in every database that has one.
-        filter_columns = [props["assignee"]] if props["assignee"] else []
-    if filter_person and not filter_columns:
-        return {
-            "error": (
-                "This database has no people column to filter on. Name the "
-                "columns to match in the cell's Filter columns option."
-            ),
-            "title": title,
-        }
-    if filter_person:
-        col_err = core.filter_column_error(schema_props, filter_columns)
-        if col_err:
-            return {"error": col_err, "title": title}
-    person_id = core.resolve_person(account_id, filter_person) if filter_person else ""
-    if filter_person:
-        person_err = core.person_filter_error(account_id, filter_person)
-        if person_err:
-            return {"error": person_err, "title": title}
-    notion_filter, filter_complete = (
-        core.build_filter(schema_props, filter_columns, filter_person, person_id)
-        if filter_person
-        else (None, True)
-    )
+    flt, err = core.person_filter(account_id, schema_props, options, props["person"])
+    if err:
+        return {"error": err, "title": title}
 
-    sorts = (
-        [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
-    )
+    # Sort server-side so the capped fetch returns the rows the cell will
+    # show rather than an arbitrary slice: by the chosen column when Notion
+    # can, else by date, which is what the default order leads with.
+    notion_sorts = core.notion_sorts(schema_props, sorts)
+    if notion_sorts is None and props["date"]:
+        notion_sorts = [{"property": props["date"], "direction": "ascending"}]
     pages, err, truncated = core.query(
-        account_id, ds_id, filter_=notion_filter, sorts=sorts
+        account_id, ds_id, filter_=flt["notion_filter"], sorts=notion_sorts
     )
     if err or pages is None:
-        return {"error": err or "Couldn't load projects from Notion.", "title": title}
+        return {"error": err or "Couldn't load rows from Notion.", "title": title}
 
-    if filter_person:
-        pages = [
-            p for p in pages
-            if core.row_matches(p, schema_props, filter_columns, filter_person, person_id)
-        ]
+    pages = core.apply_person_filter(pages, schema_props, flt)
+    pages = core.sort_pages(pages, sorts)
     today = date.today().isoformat()
     items = [_row(p, core, props, schema_props, today) for p in pages]
     if not show_completed:
         items = [i for i in items if not i["done"]]
-    items.sort(key=_sort_key)
+    if not sorts:
+        items.sort(key=_sort_key)
 
     tracked = [i["progress"] for i in items if i["progress"] is not None]
     result = {
@@ -246,18 +196,19 @@ def fetch(
         "shown": min(len(items), limit),
         "overdue_count": sum(1 for i in items if i["overdue"]),
         "empty": not items,
-        "has_due": bool(props["due"]),
+        "has_date": bool(props["date"]),
         "has_status": bool(props["status"]),
         "has_progress": bool(props["progress"]) and bool(tracked),
         "account": core.account_name(account_id),
         "avg_progress": (sum(tracked) / len(tracked)) if tracked else None,
-        "filtered_by": filter_person,
+        "filtered_by": flt["person"],
         # True when rows were dropped locally out of a fetch that hit the
         # page cap, so matches beyond it were never seen. A server-side
         # filter runs before paging, so it never has this problem.
-        "filter_incomplete": bool(filter_person) and not filter_complete and truncated,
+        "filter_incomplete": bool(flt["person"]) and not flt["complete"] and truncated,
+        "sorted_by": [c for c, _ in sorts],
         "detected": props,
-        "fetched_at": now,
+        "fetched_at": int(time.time()),
     }
     with contextlib.suppress(OSError):
         result_path.write_text(json.dumps(result), encoding="utf-8")

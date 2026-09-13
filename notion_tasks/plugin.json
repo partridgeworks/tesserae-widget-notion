@@ -1,9 +1,9 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "kind": "widget",
-  "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Supports several Notion accounts. Requires the Notion Core plugin.",
+  "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Sort by any column. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
   "supports": {
     "sizes": [
@@ -130,6 +130,54 @@
       "help": "Off by default: a wall panel is for what's left, not what's finished."
     },
     {
+      "name": "sort_prop",
+      "type": "string",
+      "label": "Sort by column (blank = default order)",
+      "default": "",
+      "placeholder": "Priority",
+      "help": "Type a Notion column name exactly. Blank keeps the built-in order: overdue first, then by due date, then by priority. Tasks with nothing in the column go last."
+    },
+    {
+      "name": "sort_dir",
+      "type": "select",
+      "label": "Sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
+    },
+    {
+      "name": "sort2_prop",
+      "type": "string",
+      "label": "Then sort by column (blank = none)",
+      "default": "",
+      "placeholder": "Name",
+      "help": "Breaks ties in the first sort. Type a Notion column name exactly."
+    },
+    {
+      "name": "sort2_dir",
+      "type": "select",
+      "label": "Then sort direction",
+      "default": "asc",
+      "choices": [
+        {
+          "value": "asc",
+          "label": "Ascending (A\u2192Z, oldest first, lowest first)"
+        },
+        {
+          "value": "desc",
+          "label": "Descending (Z\u2192A, newest first, highest first)"
+        }
+      ]
+    },
+    {
       "name": "filter_person",
       "type": "string",
       "label": "Only show items for",
@@ -153,7 +201,7 @@
       "help": "Only needed if auto-detection picks the wrong column. Type the Notion property name exactly. The Notion Core admin page lists every column and what was detected."
     },
     {
-      "name": "due_prop",
+      "name": "date_prop",
       "type": "string",
       "label": "Due date column (blank = auto-detect)",
       "default": ""
@@ -229,6 +277,11 @@
         "name": "filtered_by",
         "type": "str",
         "label": "Filter in force"
+      },
+      {
+        "name": "sorted_by",
+        "type": "arr",
+        "label": "Sort columns in force"
       }
     ],
     "sample": {
@@ -298,7 +351,8 @@
       "fetched_at": 1757500000,
       "group_by": "none",
       "account": "Work",
-      "filtered_by": ""
+      "filtered_by": "",
+      "sorted_by": []
     }
   }
 }

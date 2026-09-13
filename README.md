@@ -1,27 +1,41 @@
 # Notion for Tesserae
 
-Put your Notion tasks and projects on an e-ink panel.
+Put any Notion database on an e-ink panel.
 
-Two widgets and a shared connection for [Tesserae](https://github.com/dmellok/tesserae),
+Three widgets and a shared connection for [Tesserae](https://github.com/dmellok/tesserae),
 the self-hosted e-ink dashboard server.
-
-![Open tasks grouped under project headings](screenshot-tasks.png)
 
 ## What it does
 
 **Notion, Tasks** — your open tasks, overdue first, with due date, status and
-project. Optionally grouped under a heading per project.
+project. Optionally grouped under a heading per project. The one widget here
+that assumes what its rows *are*: things to be done.
 
-**Notion, Projects** — active projects with status, target date, owner, and a
-progress bar where your database tracks one.
+![Open tasks grouped under project headings](screenshot-tasks.png)
 
-![Active projects with progress bars](screenshot-projects.png)
+**Notion, List** — one line per row of any database: title, status, date,
+person, and a progress bar where the database tracks one. Completed rows are
+left out by default.
 
-**You don't have to reshape your Notion databases to use these.** The widgets
-work out which column holds the status, the due date, the priority and the
+![One row per record, with status, date and a progress bar](screenshot-list.png)
+
+**Notion, Cards** — a grid of bordered cards, one per record, showing up to
+five columns of your choosing. How each column is drawn follows its Notion
+type: a checkbox as a checkbox, a select or status as a badge, a date as a
+date, anything else as text. Each column gets its own size and can show its
+name. Filter by up to three column conditions, sort by any column, group
+under a heading per value of a column, cap the count.
+
+![Cards showing title, status badge and due date](screenshot-cards.png)
+
+![Cards grouped under a heading per status, with wrapped notes](screenshot-cards-grouped.png)
+
+**You don't have to reshape your Notion databases to use these.** Tasks and
+List work out which column holds the status, the date, the priority and the
 project by looking at column *types*, not names — so a title column called
 "Task", a status called "Stage" and a date called "Whenever" are all found.
-Anything your database doesn't have is simply left out of the display.
+Anything your database doesn't have is simply left out. Cards asks you to
+name the columns, and draws each one the way its type suggests.
 
 ## Getting started
 
@@ -43,48 +57,94 @@ integration. Do this for every database you want on a panel.
 give the account a name (anything you like — "Work", "Personal"), paste the
 token, and Save. The page then lists every database it can see.
 
-**4. Add a widget.** On a dashboard, add a *Notion, Tasks* or *Notion,
-Projects* cell and pick your database from the **Database** dropdown. That's
-it — the columns are detected for you.
+**4. Add a widget.** On a dashboard, add a *Notion, Tasks*, *Notion, List* or
+*Notion, Cards* cell and pick your database from the **Database** dropdown.
+Tasks and List detect the columns for you; Cards shows the title column until
+you name the columns you want.
 
 ## Configuration
 
 Account setup lives on the **Notion Core admin page**. Everything else is
 per-cell, in the normal widget options.
 
-### Notion, Tasks
+### Options every widget has
 
 | Option | Default | What it does |
 |---|---|---|
 | **Database** | — | Which Notion database to read. Required. |
-| **Title** | `Tasks` | Heading shown on the cell. |
-| **Max tasks shown** | 8 | Upper bound; smaller cells show fewer. |
+| **Title** | per widget | Heading shown on the cell. |
 | **Refresh** | 15 min | How often to re-query Notion. |
+| **Sort by column** | blank | A Notion column name. Blank keeps the widget's own order (see below). Rows with nothing in that column go last either way. |
+| **Sort direction** | Ascending | |
+| **Then sort by column** | blank | Breaks ties in the first sort. Same rules. |
+| **Then sort direction** | Ascending | |
+| **Only show items for** | — | Filter to one person. Blank shows everything. See [Showing only your own items](#showing-only-your-own-items). |
+| **Filter columns** | auto | Which columns the person filter looks at. Blank = the people column. |
+
+### Notion, Tasks
+
+| Option | Default | What it does |
+|---|---|---|
+| **Max tasks shown** | 8 | Upper bound; smaller cells show fewer. |
 | **Group by** | No grouping | `Project` buckets tasks under a heading per project. |
 | **Show group headings** | on | Off keeps the grouping and ordering but drops the heading rows; each row then shows its own project name instead. |
 | **Show due dates** | on | |
 | **Show project names** | on | |
 | **Show status chips** | on | |
 | **Include completed tasks** | off | A panel is usually for what's left. |
-| **Only show items for** | — | Filter to one person. Blank shows everything. |
-| **Filter columns** | auto | Which columns the filter looks at. Blank = the people column. |
 | **… column** (×5) | auto | Override a detected column. Leave blank unless a guess is wrong. |
 
-### Notion, Projects
+Default order: overdue first, then soonest due, then priority, then title.
+With a **Sort by column** set, that column decides instead, and grouping
+follows the first task of each project rather than re-ranking by urgency.
+
+### Notion, List
 
 | Option | Default | What it does |
 |---|---|---|
-| **Database** | — | Which Notion database to read. Required. |
-| **Title** | `Projects` | |
-| **Max projects shown** | 6 | |
-| **Refresh** | 15 min | |
+| **Max rows shown** | 6 | |
 | **Show progress bars** | on | Needs a number, formula or rollup column. |
-| **Show target dates** | on | |
-| **Show owner** | off | |
-| **Include completed projects** | off | |
-| **Only show items for** | — | Filter to one person. Blank shows everything. |
-| **Filter columns** | auto | Which columns the filter looks at. Blank = the people column. |
+| **Show dates** | on | |
+| **Show person** | off | |
+| **Include completed rows** | off | A row is "completed" when its status is Done-like or its done checkbox is ticked. |
 | **… column** (×5) | auto | Override a detected column. |
+
+Default order: past their date first, then soonest dated, then furthest
+along, then title.
+
+### Notion, Cards
+
+| Option | Default | What it does |
+|---|---|---|
+| **Columns** | 2 | Cards per row. Small cells cap it: 1 at xs, 2 at sm, 4 at md. |
+| **Max records shown** | 6 | Rows follow from this and Columns. Every row gets an equal share of the cell, so more records means shorter cards. |
+| **Property 1 … 5** | blank | A Notion column name, exactly as spelled. Blank slots are skipped. With none set, cards show the title column. |
+| **Property N size** | M | XS, S, M, L or XL. Scales that field's text, badges, checkbox and name together. |
+| **Property N max lines** | 1 | For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. |
+| **Property N: show field name** | off | Puts the column name above the value (beside it, for a checkbox). |
+| **Group by column** | blank | Cards collect under a heading per value, in sorted order; cards with nothing in the column go last under *No &lt;column&gt;*. A column with several values files the card under the first. |
+| **Filter 1–3: column** | blank | A column name; blank means that filter is unused. Every filter that names a column must hold. |
+| **Filter 1–3: condition** | is | is / is not / is one of / is not one of / contains / does not contain / is empty / is not empty / greater than / at least / less than / at most. |
+| **Filter 1–3: value** | — | Matched case-insensitively. *Is one of* takes a comma-separated list (`This Week, Next Week, This Quarter`); a multi-select matches on any of its tags. Dates take `2026-09-30`, a month `2026-09`, or `today`. A checkbox takes `yes` or `no`. |
+
+How a column is drawn:
+
+| Notion type | Drawn as |
+|---|---|
+| checkbox | a checkbox |
+| select, status, multi-select | badges, one per value |
+| date, created time, last edited time | a date (with the end date for a range, the time for a datetime) |
+| number | a number, in the column's Notion format (`75%`, `$1,200`) |
+| formula, rollup | whichever of the above its result is |
+| anything else | text (people and relations as names, comma-separated) |
+
+A field that would be sliced off the bottom of a short card is hidden whole
+instead, and a cell too short for every row draws fewer whole cards and says
+*N OF M* in its title bar. If a field you set is missing, the card is too
+short for it — raise the cell size, or lower **Max records shown**, the
+field's size or its max lines.
+
+Sort with no column set is Notion's own order.
 
 ### Overriding a column
 
@@ -92,7 +152,8 @@ If a guess is wrong, type the Notion property name into the matching *…
 column* option — **exactly** as Notion spells it, emoji and all
 (`🎬 Episodes`, not `Episodes`). The admin page's **Inspect columns** link
 lists every column and what was detected, which is the easiest place to copy
-the name from.
+the name from. The same goes for every option that names a column: sort,
+filter, and the Cards properties.
 
 Get it wrong and the cell says so and lists the columns that do exist. It will
 never silently read a different column instead.
@@ -166,12 +227,14 @@ at it fall back to another account rather than breaking.
 | One database missing from the list | Not shared, or the list is cached (1 hour) | Share it, then **Refresh from Notion** |
 | *"Notion rejected the integration token"* | Wrong or revoked token | Copy it again from notion.so/my-integrations and re-save |
 | *"Notion can't see that database"* | Not shared with **this** account's integration | Share it, or pick a database belonging to an account that can see it |
-| *"This database has no column called …"* | Typo in a column override | Copy the exact name from **Inspect columns** — emoji included |
+| *"This database has no column called …"* | Typo in a column name (override, sort, filter or Cards property) | Copy the exact name from **Inspect columns** — emoji included |
 | Grouping uses the wrong column | A column added very recently | Self-corrects within 15 minutes; **Refresh from Notion** to force it |
 | *"Your stored Notion token can no longer be decrypted"* | `TESSERAE_SECRET_KEY` changed | Re-enter the token on the admin page |
 | Everything shows "No project" | The project column is a relation to a database you haven't shared | Share the *related* database too, so its page titles can be read |
 | A person filter shows nothing | Those rows have nobody assigned in Notion | Set the person in Notion, or clear the filter |
-| *"'X' is a date column, which can't be filtered"* | A non-text column named in **Filter columns** | Use a people, select, status, multi-select, title or text column |
+| *"'X' is a date column, which can't be filtered"* | A non-text column named in **Filter columns** | Use a people, select, status, multi-select, title or text column — or, on Cards, the condition filter, which takes any type |
+| A Cards field is missing from some cards | The card is too short for it | Bigger cell, fewer records, or a smaller size for that field |
+| A relation shows nothing on a card | The related database isn't shared | Share it with the integration |
 
 ## Good to know
 
@@ -184,9 +247,11 @@ one; leave it blank.
 several targets, or a `multi_select` with several tags. A row and a heading
 each need one label, so the first entry wins, in Notion's own order.
 
-**What it fetches.** Up to 500 rows per refresh, sorted by due date where the
-database has one. Database lists are cached for an hour, column layouts for
-15 minutes, results for your chosen Refresh interval.
+**What it fetches.** Up to 500 rows per refresh. Sorted by Notion itself when
+the sort column is a type Notion can sort (text, number, select, status, date,
+checkbox, URL, timestamps), so the 500 are the right 500; other types are
+sorted after the fetch. Database lists are cached for an hour, column layouts
+for 15 minutes, results for your chosen Refresh interval.
 
 **How person filtering works.** Notion's people filter takes a user *id*, not
 a name, and `GET /v1/users` is forbidden to personal access tokens — so a
@@ -194,7 +259,8 @@ colleague's name cannot be looked up. What does work is `GET /v1/users/me`,
 whose `bot.owner.user` is the human who created the integration. That is how
 `me` resolves to a real id and gets filtered by Notion itself. Any other name
 is matched locally on the fetched rows, which is exact but only sees the first
-500 rows.
+500 rows. The Cards condition filter is always applied locally, for the same
+reason it works on every column type.
 
 Notion also accepts the literal string `"me"` in a people filter, but there it
 means the *integration bot* — never anybody's assignee — so it silently
@@ -217,11 +283,27 @@ python shoot.py --theme dark
 Both need a Tesserae checkout for the app itself; the sibling
 `../../tesserae-upstream-fork` is assumed, or set `TESSERAE_SRC`.
 
+Layout: one folder per plugin (the folder name is the plugin id), and
+everything else at the root, because the marketplace installer treats every
+root-level directory of the bundle as a plugin folder. `notion_core/server.py` holds everything the widgets share on
+the server (accounts, discovery, property reading, the person and condition
+filters, sorting, the result cache); `notion_core/static/notion-widgets.js`
+holds what they share in the browser (escaping, date labels, the error, empty
+and count states). A widget's `client.js` imports it relatively, which the
+host serves from the core's `static/` folder.
+
 ## Status
 
-Pre-1.0. Verified against a real Notion workspace: database discovery, column
+Pre-1.0, and 0.6 breaks placed cells on purpose: *Notion, Projects* became
+*Notion, List* with no shim, its option keys were renamed to match, and the
+pre-multi-account single-token setting is no longer read. Re-add the token on
+the admin page and re-place any List cells.
+
+Verified against a real Notion workspace: database discovery, column
 detection, two accounts side by side, and grouping by an emoji-named
-`relation` column.
+`relation` column. The Cards widget and the sort options are verified against
+the fake Notion in the test suite and the headless-Chromium render, not yet
+against a live workspace.
 
 ## License
 

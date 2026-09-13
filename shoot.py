@@ -1,4 +1,4 @@
-"""Render both widgets at every cell size and save PNGs.
+"""Render every widget at every cell size and save PNGs.
 
 The smoke tests prove the server half: the right data reaches the cell. They
 say nothing about the half that matters on a panel, because `client.js` runs
@@ -28,7 +28,7 @@ from urllib.parse import quote
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 REPO = Path(__file__).resolve().parent
-PLUGIN_FOLDERS = ("notion_core", "notion_tasks", "notion_projects")
+PLUGIN_FOLDERS = ("notion_core", "notion_tasks", "notion_list", "notion_cards")
 SIZES = ("xs", "sm", "md", "lg")
 # Must match app/composer.py's SIZE_DIMENSIONS so the screenshot viewport is
 # the cell, not a scaled approximation of it.
@@ -61,7 +61,11 @@ def build_app(data_root: Path):
         )
     app = create_app(testing=True, data_root=data_root, plugins_dir=TESSERAE_SRC / "plugins")
     app.config["SETTINGS_STORE"].patch_section(
-        "plugins", {"notion_core": {"api_token": "ntn_fake-token"}}
+        "plugins",
+        {"notion_core": {
+            "accounts_json": json.dumps([{"id": "shoot", "name": "Work"}]),
+            "account_shoot_token_secret": "ntn_fake-token",
+        }},
     )
     return app
 
@@ -101,7 +105,43 @@ def main() -> int:
                     {"group_by": "project", "show_group_header": False},
                     "-grouped-noheads",
                 ),
-                ("notion_projects", {}, ""),
+                ("notion_list", {}, ""),
+                ("notion_list", {"sort_prop": "Name", "sort_dir": "desc"}, "-sorted"),
+                (
+                    "notion_cards",
+                    {
+                        "columns": 2,
+                        "prop1": "Name", "prop1_size": "l",
+                        "prop2": "Status", "prop2_size": "s", "prop2_show_name": True,
+                        "prop3": "Due", "prop3_size": "m", "prop3_show_name": True,
+                        "prop4": "Done", "prop4_size": "m", "prop4_show_name": True,
+                    },
+                    "",
+                ),
+                (
+                    "notion_cards",
+                    {
+                        "columns": 3,
+                        "prop1": "Name", "prop1_size": "m",
+                        "prop2": "Project", "prop2_size": "xs",
+                        "prop3": "Progress", "prop3_size": "xl", "prop3_show_name": True,
+                        "filter_prop": "Status", "filter_op": "not_equals", "filter_value": "Done",
+                        "sort_prop": "Progress", "sort_dir": "desc",
+                    },
+                    "-progress",
+                ),
+                (
+                    "notion_cards",
+                    {
+                        "columns": 3, "limit": 12,
+                        "prop1": "Name", "prop1_size": "m", "prop1_lines": 2,
+                        "prop2": "Notes", "prop2_size": "s", "prop2_lines": 3,
+                        "prop2_show_name": True,
+                        "prop3": "Due", "prop3_size": "s", "prop3_show_name": True,
+                        "group_prop": "Status", "sort_prop": "Name",
+                    },
+                    "-grouped",
+                ),
             ]
             for plugin, extra, suffix in variants:
                 for size in SIZES:

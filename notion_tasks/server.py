@@ -15,7 +15,6 @@ Refresh option.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import time
 from datetime import date
@@ -103,7 +102,7 @@ def _row(
     checkbox = core.prop(page_obj, props["done"]) if props["done"] else None
     done = core.is_done(status, checkbox)
 
-    due_raw = core.prop(page_obj, props["due"]) if props["due"] else None
+    due_raw = core.prop(page_obj, props["date"]) if props["date"] else None
     due_date = ""
     if isinstance(due_raw, dict):
         due_date = str(due_raw.get("start") or "")[:10]
@@ -114,8 +113,8 @@ def _row(
     project = core.project_label(page_obj, props["project"], project_kind, relation_names)
 
     assignee = ""
-    if props["assignee"]:
-        people = core.prop(page_obj, props["assignee"])
+    if props["person"]:
+        people = core.prop(page_obj, props["person"])
         if isinstance(people, list) and people:
             assignee = str(people[0] or "")
 
@@ -151,13 +150,17 @@ def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _group(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _group(items: list[dict[str, Any]], *, keep_order: bool = False) -> list[dict[str, Any]]:
     """Bucket tasks by project → ``[{"name", "items", "overdue_count"}]``.
 
     Group order follows the most urgent task in each group, using the same
     sort key the flat list uses, so the project needing attention stays at
     the top of the cell. Tasks with no project collect into one group that
     is forced last: an unfiled task is the least interesting kind.
+
+    ``keep_order`` is for a cell that named its own sort column: the rows
+    arrive in that order already, so groups are emitted in order of first
+    appearance rather than re-ranked by urgency.
     """
     buckets: dict[str, list[dict[str, Any]]] = {}
     for item in items:
@@ -171,7 +174,10 @@ def _group(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for name, rows in buckets.items()
     ]
-    groups.sort(key=lambda g: (g["name"] == NO_PROJECT_LABEL, _sort_key(g["items"][0])))
+    if keep_order:
+        groups.sort(key=lambda g: g["name"] == NO_PROJECT_LABEL)
+    else:
+        groups.sort(key=lambda g: (g["name"] == NO_PROJECT_LABEL, _sort_key(g["items"][0])))
     return groups
 
 
@@ -190,119 +196,66 @@ def fetch(
     if not ds_id:
         return {"error": ERR_NO_DATABASE, "title": title}
 
-    try:
-        limit = max(1, int(options.get("limit", 8)))
-    except (TypeError, ValueError):
-        limit = 8
-    try:
-        refresh_min = max(1, int(options.get("refresh_min", 15)))
-    except (TypeError, ValueError):
-        refresh_min = 15
-
+    limit = core.read_int(options, "limit", 8)
+    refresh_min = core.read_int(options, "refresh_min", 15)
     show_completed = bool(options.get("show_completed"))
+    group_by = str(options.get("group_by") or "none").strip().lower()
+    sorts = core.sort_settings(options)
     # Read here, not where they are used: the cache fingerprint below is
     # built before the schema is fetched, and must include the filter or
     # changing it would serve rows from the previous one.
     filter_person = str(options.get("filter_person") or "").strip()
     filter_columns = core.split_columns(options.get("filter_columns"))
-    group_by = str(options.get("group_by") or "none").strip().lower()
-
-    data_dir = Path(ctx.get("data_dir") or ".")
-    with contextlib.suppress(OSError):
-        data_dir.mkdir(parents=True, exist_ok=True)
     overrides = {k: v for k, v in sorted(options.items()) if k.endswith("_prop")}
-    fingerprint = json.dumps(
-        [account_id, ds_id, limit, show_completed, group_by, overrides,
+
+    cached, result_path = core.result_cache(
+        Path(ctx.get("data_dir") or "."),
+        [account_id, ds_id, limit, show_completed, group_by, overrides, sorts,
          filter_person, filter_columns],
-        sort_keys=True,
+        refresh_min,
     )
-    slug = hashlib.sha1(fingerprint.encode()).hexdigest()[:12]
-    result_path = data_dir / f"result_{slug}.json"
+    if cached is not None:
+        cached["title"] = title
+        return cached
 
-    now = int(time.time())
-    if result_path.exists() and now - int(result_path.stat().st_mtime) < refresh_min * 60:
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            cached = json.loads(result_path.read_text(encoding="utf-8"))
-            cached["title"] = title
-            return cached  # type: ignore[no-any-return]
-
-    schema_props, err = core.schema(account_id, ds_id)
+    schema_props, err = core.schema_with_columns(
+        account_id, ds_id, [*core.override_names(options), *(c for c, _ in sorts), *filter_columns]
+    )
     if err or schema_props is None:
         return {"error": err or "Couldn't read that database.", "title": title}
-    # An override that doesn't match is nearly always a schema this cache has
-    # not caught up with -- a column added minutes ago -- rather than a typo.
-    # Re-read once before blaming the operator, then say so plainly if it
-    # really isn't there. Falling through to auto-detection instead means
-    # silently reading a column nobody asked for.
-    missing = core.unmatched_overrides(schema_props, options)
-    if missing:
-        fresh, fresh_err = core.schema(account_id, ds_id, refresh=True)
-        if fresh is not None and not fresh_err:
-            schema_props = fresh
-            missing = core.unmatched_overrides(schema_props, options)
-    if missing:
-        return {
-            "error": core.unknown_column_message(missing[0][1], schema_props),
-            "title": title,
-        }
     props = core.resolve_props(schema_props, options)
 
-    # ---- filter -------------------------------------------------------
-    # A blank filter_person means "no filter", which is the pre-0.5 behaviour
-    # and stays the default: a cell that never set one is unchanged.
-    if filter_person and not filter_columns:
-        # Default to the detected people column, which is what "assigned to
-        # me" means in every database that has one.
-        filter_columns = [props["assignee"]] if props["assignee"] else []
-    if filter_person and not filter_columns:
-        return {
-            "error": (
-                "This database has no people column to filter on. Name the "
-                "columns to match in the cell's Filter columns option."
-            ),
-            "title": title,
-        }
-    if filter_person:
-        col_err = core.filter_column_error(schema_props, filter_columns)
-        if col_err:
-            return {"error": col_err, "title": title}
-    person_id = core.resolve_person(account_id, filter_person) if filter_person else ""
-    if filter_person:
-        person_err = core.person_filter_error(account_id, filter_person)
-        if person_err:
-            return {"error": person_err, "title": title}
-    notion_filter, filter_complete = (
-        core.build_filter(schema_props, filter_columns, filter_person, person_id)
-        if filter_person
-        else (None, True)
-    )
+    flt, err = core.person_filter(account_id, schema_props, options, props["person"])
+    if err:
+        return {"error": err, "title": title}
     project_kind = core.prop_type(schema_props, props["project"])
 
-    # Sort server-side by due date when the database has one, so that the
-    # capped page walk returns the soonest tasks rather than an arbitrary
-    # slice. Completion filtering happens locally: a "done" state can live in
-    # a status, a select or a checkbox, and building a Notion filter for the
-    # right one is far more fragile than dropping rows after the fact.
-    sorts = [{"property": props["due"], "direction": "ascending"}] if props["due"] else None
+    # Sort server-side so the capped page walk returns the rows the cell
+    # will show rather than an arbitrary slice: by the chosen column when
+    # Notion can sort it, else by due date, which the default order leads
+    # with. Completion filtering happens locally: a "done" state can live
+    # in a status, a select or a checkbox, and building a Notion filter for
+    # the right one is far more fragile than dropping rows after the fact.
+    notion_sorts = core.notion_sorts(schema_props, sorts)
+    if notion_sorts is None and props["date"]:
+        notion_sorts = [{"property": props["date"], "direction": "ascending"}]
     pages, err, truncated = core.query(
-        account_id, ds_id, filter_=notion_filter, sorts=sorts
+        account_id, ds_id, filter_=flt["notion_filter"], sorts=notion_sorts
     )
     if err or pages is None:
         return {"error": err or "Couldn't load tasks from Notion.", "title": title}
 
     relation_names = core.relation_titles(account_id, pages, props["project"], project_kind)
-    if filter_person:
-        pages = [
-            p for p in pages
-            if core.row_matches(p, schema_props, filter_columns, filter_person, person_id)
-        ]
+    pages = core.apply_person_filter(pages, schema_props, flt)
+    pages = core.sort_pages(pages, sorts)
     today = date.today().isoformat()
     items = [
         _row(p, core, props, schema_props, project_kind, relation_names, today) for p in pages
     ]
     if not show_completed:
         items = [i for i in items if not i["done"]]
-    items.sort(key=_sort_key)
+    if not sorts:
+        items.sort(key=_sort_key)
     shown = items[:limit]
 
     result: dict[str, Any] = {
@@ -313,24 +266,25 @@ def fetch(
         "overdue_count": sum(1 for i in items if i["overdue"]),
         "today_count": sum(1 for i in items if i["today"]),
         "empty": not items,
-        "has_due": bool(props["due"]),
+        "has_due": bool(props["date"]),
         "has_project": bool(props["project"]),
         "has_status": bool(props["status"]),
         "group_by": group_by,
         "account": core.account_name(account_id),
-        "filtered_by": filter_person,
+        "filtered_by": flt["person"],
         # True when rows were dropped locally out of a fetch that hit the
         # page cap, so matches beyond it were never seen. A server-side
         # filter runs before paging, so it never has this problem.
-        "filter_incomplete": bool(filter_person) and not filter_complete and truncated,
+        "filter_incomplete": bool(flt["person"]) and not flt["complete"] and truncated,
+        "sorted_by": [c for c, _ in sorts],
         "detected": props,
-        "fetched_at": now,
+        "fetched_at": int(time.time()),
     }
     # Group the rows that survived the limit, not the whole set: the cell
     # shows `shown`, so grouping anything else would advertise groups whose
     # tasks never appear.
     if group_by == "project" and props["project"]:
-        result["groups"] = _group(shown)
+        result["groups"] = _group(shown, keep_order=bool(sorts))
     with contextlib.suppress(OSError):
         result_path.write_text(json.dumps(result), encoding="utf-8")
     return result

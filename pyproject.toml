@@ -1,6 +1,6 @@
 # Test configuration only. This repo ships plugin folders, not an installable
-# package: Tesserae loads `notion_core/`, `notion_tasks/` and
-# `notion_projects/` by dropping them into a plugins directory.
+# package: Tesserae loads `notion_core/`, `notion_tasks/`, `notion_list/` and
+# `notion_cards/` by dropping them into a plugins directory.
 #
 # Everything that is not a plugin folder is kept as a ROOT-LEVEL FILE on
 # purpose. The marketplace installer treats every directory at the root of a
@@ -9,10 +9,10 @@
 # tarball uninstallable. Same layout as the devref and glances bundles.
 
 [tool.pytest.ini_options]
-testpaths = ["notion_core", "notion_tasks", "notion_projects"]
+testpaths = ["notion_core", "notion_tasks", "notion_list", "notion_cards"]
 python_files = ["test_*.py"]
 # importlib import mode, the same setting Tesserae itself uses. Without it the
-# three identically-named `tests/test_smoke.py` files collide on module name.
+# identically-named `tests/test_smoke.py` files collide on module name.
 addopts = "-ra --strict-markers --import-mode=importlib"
 
 [tool.ruff]

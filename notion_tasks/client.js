@@ -3,11 +3,11 @@
 // right. Overdue due-text goes accent-1 bold so the panel reads at a glance
 // from across the room. "count" fragment = one big open-task number.
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
+import {
+  CSS, countTile, dateLabel, emptyCard, emptyMessage, errorCard, escapeHtml,
+} from "../notion_core/static/notion-widgets.js";
+
+const WIDGET = "notion_tasks";
 
 // priority_rank: 4 urgent … 1 low, 0 unset. Accent-1 is the alarm colour,
 // so it is reserved for urgent/high and for overdue dates.
@@ -37,15 +37,6 @@ const META = {
   lg: { status: true, due: true, project: true },
 };
 
-function dueLabel(item) {
-  const raw = String(item.due_date || "");
-  if (!raw) return "";
-  if (item.today) return "today";
-  const d = new Date(raw + "T00:00:00");
-  if (isNaN(d)) return escapeHtml(raw);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 export default function render(shadow, ctx) {
   const data = ctx?.data ?? {};
   // Panels canvas passes the fragment on the cell; older hosts put it at the
@@ -54,15 +45,9 @@ export default function render(shadow, ctx) {
   const opts = ctx?.cell?.options || {};
   const size = ctx?.cell?.size || "md";
   const title = data.title || "Tasks";
-  const css = `<link rel="stylesheet" href="/static/style/spectra-widgets.css">`;
 
   if (data.error) {
-    shadow.innerHTML = `
-      ${css}
-      <div class="w" data-widget="notion_tasks">
-        <div class="w-title"><i class="ph-bold ph-warning-circle"></i><h3>${escapeHtml(title)}</h3></div>
-        <div class="w-body"><p class="u-muted">${escapeHtml(data.error)}</p></div>
-      </div>`;
+    errorCard(shadow, WIDGET, title, data.error);
     return;
   }
 
@@ -70,42 +55,20 @@ export default function render(shadow, ctx) {
   const total = data.total ?? 0;
 
   if (fragment === "count") {
-    shadow.innerHTML = `
-      ${css}
-      <style>
-        .count-wrap { width:100%; height:100%; display:flex; flex-direction:column;
-                      align-items:center; justify-content:center; gap:1cqmin;
-                      container-type:size; }
-        .count-num { font-size:38cqmin; font-weight:var(--fw-black); line-height:1;
-                     font-variant-numeric:tabular-nums;
-                     color:${overdue > 0 ? "var(--accent-1)" : "var(--text-primary)"}; }
-        .count-label { font-size:9cqmin; letter-spacing:var(--ls-label);
-                       text-transform:uppercase; color:var(--text-secondary);
-                       font-weight:var(--fw-bold); }
-      </style>
-      <div class="w" data-widget="notion_tasks">
-        <div class="count-wrap">
-          <div class="count-num">${total}</div>
-          <div class="count-label">${overdue > 0 ? `${overdue} overdue` : "open tasks"}</div>
-        </div>
-      </div>`;
+    countTile(shadow, WIDGET, {
+      number: total,
+      label: overdue > 0 ? `${overdue} overdue` : "open tasks",
+      alarm: overdue > 0,
+    });
     return;
   }
 
   if (data.empty) {
-    // A filtered empty list is not the same news as an empty database, and
-    // saying which was applied is the difference between "all done" and
-    // "nothing here is assigned to that person".
-    const who = data.filtered_by || "";
-    shadow.innerHTML = `
-      ${css}
-      <div class="w" data-widget="notion_tasks">
-        <div class="w-title"><i class="ph-bold ph-list-checks" style="color:var(--accent-3)"></i><h3>${escapeHtml(title)}</h3></div>
-        <div class="w-body" style="justify-content:center;align-items:center">
-          <i class="ph-bold ph-check-circle" style="color:var(--accent-3);font-size:3em"></i>
-          <p class="u-muted">${who ? `Nothing for ${escapeHtml(who)}.` : "Nothing open."}</p>
-        </div>
-      </div>`;
+    emptyCard(shadow, WIDGET, {
+      icon: "ph-list-checks",
+      title,
+      message: emptyMessage(data, "Nothing open."),
+    });
     return;
   }
 
@@ -137,7 +100,7 @@ export default function render(shadow, ctx) {
         : item.today
           ? "color:var(--text-primary);font-weight:var(--fw-bold)"
           : "";
-      meta.push(`<span style="${style}">${dueLabel(item)}</span>`);
+      meta.push(`<span style="${style}">${dateLabel(item.due_date, { today: item.today })}</span>`);
     }
     // Under a heading the project name is stated directly above, so
     // repeating it per row is noise. With headings off it is the only thing
@@ -230,13 +193,13 @@ export default function render(shadow, ctx) {
   }
 
   shadow.innerHTML = `
-    ${css}
+    ${CSS}
     <style>
       .list-meta { display:inline-flex; align-items:center; gap: var(--space-1);
                    font-size: var(--fs-caption); color: var(--text-secondary);
                    white-space: nowrap; flex: 0 0 auto; }
       .list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .size-xs .list-title, .size-xs .proj-title {
+      .size-xs .list-title {
         white-space: normal; display: -webkit-box; -webkit-line-clamp: 2;
         -webkit-box-orient: vertical; overflow: hidden;
       }
@@ -255,7 +218,7 @@ export default function render(shadow, ctx) {
       .group-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .group-late { flex:0 0 auto; color: var(--accent-1); }
     </style>
-    <div class="w size-${size}" data-widget="notion_tasks">
+    <div class="w size-${size}" data-widget="${WIDGET}">
       <div class="w-title">
         <i class="ph-bold ph-list-checks" style="color:${overdue > 0 ? "var(--accent-1)" : "var(--accent-3)"}"></i>
         <h3>${escapeHtml(title)}</h3>
