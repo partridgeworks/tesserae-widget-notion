@@ -107,6 +107,45 @@ def test_a_relation_property_shows_the_related_pages_title(
     assert data["cards"][0]["fields"][0]["value"] == "Migration epic"
 
 
+def test_a_rollup_of_several_values_is_drawn_as_lines(
+    app: Flask, client: FlaskClient
+) -> None:
+    """A rollup over a multi-select is a list of lists; it used to crash
+    the text flattener ("unhashable type: 'list'"). Now every value is a
+    line of its own, flattened and de-duplicated."""
+    configure_two_accounts(app)
+    data = _cards(client, data_source=DS_ID_B, prop1="Task", prop2="Topics")
+    assert "error" not in data
+    field = _field(data["cards"][0], "Topics")
+    assert field["type"] == "rollup"
+    assert field["kind"] == "lines"
+    assert field["value"] == ["Hardware", "E-ink", "Firmware"]
+
+
+def test_a_rollup_that_reaches_a_relation_shows_titles_not_ids(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Episodes → Bookings → Guest, where Guest is itself a relation: the
+    rollup gathers page ids. Each is resolved to its title; one that can't
+    be (a page the token can't see) is dropped rather than printed."""
+    configure_two_accounts(app)
+    data = _cards(client, data_source=DS_ID_B, prop1="Task", prop2="Guests")
+    field = _field(data["cards"][0], "Guests")
+    assert field["kind"] == "lines"
+    assert field["value"] == ["Ada Lovelace", "Grace Hopper"]
+    # Grouping on it files the card under the first resolved name.
+    grouped = _cards(client, data_source=DS_ID_B, prop1="Task", group_prop="Guests")
+    assert [g["name"] for g in grouped["groups"]] == ["Ada Lovelace"]
+
+
+def test_a_rollup_can_be_grouped_and_sorted_on(app: Flask, client: FlaskClient) -> None:
+    configure_two_accounts(app)
+    data = _cards(client, data_source=DS_ID_B, prop1="Task", group_prop="Topics",
+                  sort_prop="Topics")
+    assert "error" not in data
+    assert [g["name"] for g in data["groups"]] == ["Hardware"]
+
+
 def test_size_and_show_name_travel_with_each_field(app: Flask, client: FlaskClient) -> None:
     configure_one_account(app)
     data = _cards(
@@ -127,6 +166,17 @@ def test_max_lines_defaults_to_one_and_is_clamped(app: Flask, client: FlaskClien
         client, prop1="Name", prop2="Notes", prop2_lines=3, prop3="Link", prop3_lines="99",
     )
     assert [f["lines"] for f in data["cards"][0]["fields"]] == [1, 3, 8]
+
+
+def test_space_between_properties_reaches_the_cell_clamped(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    assert _cards(client, prop1="Name")["field_gap"] == 0
+    assert _cards(client, prop1="Name", field_gap="1.25")["field_gap"] == 1.25
+    assert _cards(client, prop1="Name", field_gap=9)["field_gap"] == 5
+    assert _cards(client, prop1="Name", field_gap=-2)["field_gap"] == 0
+    assert _cards(client, prop1="Name", field_gap="wide")["field_gap"] == 0
 
 
 def test_blank_property_slots_are_skipped_in_order(app: Flask, client: FlaskClient) -> None:
@@ -416,7 +466,9 @@ def test_manifest_declares_five_property_slots_with_size_and_name_switches() -> 
     sizes = next(o for o in manifest["cell_options"] if o["name"] == "prop1_size")
     assert [c["value"] for c in sizes["choices"]] == ["xs", "s", "m", "l", "xl"]
     assert "prop6" not in names
-    for required in ("columns", "limit", "group_prop",
+    gap = next(o for o in manifest["cell_options"] if o["name"] == "field_gap")
+    assert (gap["type"], gap["default"], gap["min"], gap["max"]) == ("slider", 0, 0, 5)
+    for required in ("columns", "limit", "field_gap", "group_prop",
                      "filter_prop", "filter_op", "filter_value",
                      "filter2_prop", "filter2_op", "filter2_value",
                      "filter3_prop", "filter3_op", "filter3_value",
@@ -438,4 +490,6 @@ def test_display_kind_judges_formulas_by_their_value(app: Flask) -> None:
     assert mod.display_kind("formula", True) == "checkbox"
     assert mod.display_kind("formula", 3.5) == "number"
     assert mod.display_kind("rollup", {"start": "2026-01-01"}) == "date"
+    assert mod.display_kind("rollup", ["a", ["b", "c"]]) == "lines"
+    assert mod.display_kind("rollup", 7) == "number"
     assert mod.display_kind("formula", "text") == "text"

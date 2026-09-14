@@ -5,7 +5,8 @@ mean; this one knows nothing about the database except what the cell tells
 it: up to five columns to show on every card, each at a chosen size, with
 or without its name. What a column looks like is inferred from its Notion
 type — a checkbox draws a checkbox, a select or status draws a badge, a
-date is formatted as a date, and anything else is text at the chosen size.
+date is formatted as a date, a rollup that gathers several values lists
+them one per line, and anything else is text at the chosen size.
 
 Rows can be filtered by up to three column-and-condition pairs (``Status is
 Done``, ``Due is before today``, ``Owner is not empty``), all of which must
@@ -19,6 +20,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -33,11 +36,19 @@ SIZES = ("xs", "s", "m", "l", "xl")
 DEFAULT_SIZE = "m"
 DEFAULT_LINES = 1
 MAX_LINES = 8
+# Extra white space between a card's fields, in em, on top of the small gap
+# the card always draws. Cell option "field_gap".
+DEFAULT_FIELD_GAP = 0.0
+MAX_FIELD_GAP = 5.0
 ERR_NO_CORE = (
     "The Notion Core plugin isn't installed. Install the whole Notion bundle, "
     "not just this widget."
 )
 ERR_NO_DATABASE = "Pick a Notion database in this cell's settings."
+
+# A Notion page id, with or without its hyphens. A rollup over a relation
+# gathers these rather than names; one is never worth printing.
+_PAGE_ID = re.compile(r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$")
 
 # Notion types → how the card draws them. Anything not listed is text.
 _BADGE_TYPES = ("select", "status", "multi_select")
@@ -91,13 +102,26 @@ def _read_int(options: dict[str, Any], key: str, default: int, hi: int) -> int:
     return max(1, min(hi, value))
 
 
+def read_field_gap(options: dict[str, Any]) -> float:
+    """The "Space between properties" slider, in em, clamped to its range."""
+    try:
+        value = float(options.get("field_gap", DEFAULT_FIELD_GAP))
+    except (TypeError, ValueError):
+        value = DEFAULT_FIELD_GAP
+    if math.isnan(value):  # "nan" parses; it must not reach the stylesheet
+        value = DEFAULT_FIELD_GAP
+    return max(0.0, min(MAX_FIELD_GAP, value))
+
+
 def display_kind(prop_type: str, value: Any = None) -> str:
     """How a column is drawn, from its Notion type.
 
     A formula or rollup has no type of its own until it produces a value,
     so those are judged by the value on the row instead: a formula that
     yields true/false draws as a checkbox, one that yields a number as a
-    number, and so on.
+    number, and so on. A rollup that gathers values from related pages
+    yields a list — of names, of tags, of whole multi-selects — and is
+    drawn as lines of text, one entry per line.
     """
     if prop_type == "checkbox":
         return "checkbox"
@@ -114,6 +138,8 @@ def display_kind(prop_type: str, value: Any = None) -> str:
             return "number"
         if isinstance(value, dict):
             return "date"
+        if isinstance(value, list):
+            return "lines"
     return "text"
 
 
@@ -133,7 +159,9 @@ def _text(value: Any, relation_names: dict[str, str]) -> str:
                 continue
             # A relation yields page ids; show the related page's title and
             # drop ids that couldn't be resolved rather than printing them.
-            if item in relation_names:
+            # An item can itself be a list (a rollup over a multi-select),
+            # which can't be looked up, so the str check comes first.
+            if isinstance(item, str) and item in relation_names:
                 text = relation_names[item]
             elif relation_names and isinstance(item, str) and len(item) >= 32:
                 continue
@@ -142,6 +170,32 @@ def _text(value: Any, relation_names: dict[str, str]) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def _lines(value: Any, relation_names: dict[str, str]) -> list[str]:
+    """A rollup's gathered values as lines of text, one per entry.
+
+    Notion returns one entry per related page, and an entry can hold a
+    whole multi-select or relation, so nesting is flattened: every leaf
+    value is its own line. A leaf that is a page id (the rollup reaches a
+    relation) becomes that page's title, or is dropped if it couldn't be
+    resolved — an id tells the reader nothing. Repeats are dropped too —
+    three bookings sharing a topic is one topic — and so are blanks.
+    """
+    out: list[str] = []
+    for item in value if isinstance(value, list) else [value]:
+        if isinstance(item, list):
+            texts = _lines(item, relation_names)
+        elif isinstance(item, str) and item in relation_names:
+            texts = [relation_names[item]]
+        elif isinstance(item, str) and _PAGE_ID.match(item):
+            texts = []
+        else:
+            texts = [_text(item, {}).strip()]
+        for text in texts:
+            if text and text not in out:
+                out.append(text)
+    return out
 
 
 def _display_value(
@@ -162,6 +216,8 @@ def _display_value(
         number = value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
         fmt = spec.get("number", {}).get("format", "") if isinstance(spec, dict) else ""
         return {"value": number, "format": str(fmt or "")}
+    if kind == "lines":
+        return _lines(value, relation_names)
     return _text(value, relation_names)
 
 
@@ -211,15 +267,15 @@ def _group_label(
 ) -> str:
     """One heading for a card's group column, "" when it is empty.
 
-    A multi-valued column (several tags, several related pages) can only
-    put the card under one heading, so the first entry wins, in Notion's
-    own order, as it does for the tasks widget's project grouping.
+    A multi-valued column (several tags, several related pages, a rollup
+    of either) can only put the card under one heading, so the first entry
+    wins, in Notion's own order, as it does for the tasks widget's project
+    grouping.
     """
     value = core.prop(page, column)
     if isinstance(value, list):
-        value = next((v for v in value if v not in (None, "")), None)
-        if isinstance(value, str) and value in relation_names:
-            value = relation_names[value]
+        leaves = _lines(value, relation_names)
+        value = leaves[0] if leaves else None
     return _text(value, {}).strip()
 
 
@@ -254,6 +310,7 @@ def fetch(
 
     limit = core.read_int(options, "limit", 6, hi=48)
     columns = core.read_int(options, "columns", 2, hi=6)
+    field_gap = read_field_gap(options)
     refresh_min = core.read_int(options, "refresh_min", 15)
     fields = field_settings(options)
     sorts = core.sort_settings(options)
@@ -264,7 +321,7 @@ def fetch(
 
     cached, result_path = core.result_cache(
         Path(ctx.get("data_dir") or "."),
-        [account_id, ds_id, limit, columns, fields, sorts,
+        [account_id, ds_id, limit, columns, field_gap, fields, sorts,
          conditions, group_prop, filter_person, filter_columns],
         refresh_min,
     )
@@ -307,12 +364,13 @@ def fetch(
     pages = core.sort_pages(pages, sorts)
     shown = pages[:limit]
 
-    # Relation columns hold page ids; resolve the ones on the cards that
-    # will actually be drawn, one request per distinct page, capped.
+    # Relation columns hold page ids, and so does a rollup that reaches a
+    # relation; resolve the ones on the cards that will actually be drawn,
+    # one request per distinct page, capped.
     relation_names = {
-        name: core.relation_titles(account_id, shown, name, "relation")
+        name: core.relation_titles(account_id, shown, name, core.prop_type(schema_props, name))
         for name in {*(f["name"] for f in fields), group_prop}
-        if name and core.prop_type(schema_props, name) == "relation"
+        if name and core.prop_type(schema_props, name) in ("relation", "rollup")
     }
     cards = [_card(p, core, fields, schema_props, relation_names) for p in shown]
 
@@ -322,6 +380,7 @@ def fetch(
         "total": len(pages),
         "shown": len(cards),
         "columns": columns,
+        "field_gap": field_gap,
         "empty": not pages,
         "account": core.account_name(account_id),
         "filtered_by": flt["person"],

@@ -25,6 +25,14 @@ DS_ID_B = "99999999-8888-7777-6666-555555555555"
 TOKEN_B = "ntn_second-token"
 
 RELATED_PAGE_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+# Pages a rollup reaches through the epic's own relation (Episodes →
+# Bookings → Topic, where Topic is itself a relation to a Topics database).
+# The last has no page behind it: an id the resolver can't turn into a name.
+TOPIC_PAGE_IDS = (
+    "10101010-2020-3030-4040-505050505050",
+    "60606060-7070-8080-9090-a0a0a0a0a0a0",
+    "deadbeef-dead-beef-dead-beefdeadbeef",
+)
 
 # The human who owns the integration token. GET /v1/users/me returns the BOT;
 # the person is under bot.owner.user, and their id is the only thing Notion's
@@ -58,6 +66,12 @@ SCHEMA_B: dict[str, Any] = {
     "Stage": {"type": "status"},
     "Deadline": {"type": "date"},
     "Epic": {"type": "relation"},
+    # A rollup over the epic's tags: Notion hands back one entry per
+    # related page, each a whole multi-select, i.e. a list of lists.
+    "Topics": {"type": "rollup"},
+    # A rollup over a relation on the epic: entries are relations, i.e.
+    # page ids, which only mean something once resolved to titles.
+    "Guests": {"type": "rollup"},
 }
 
 
@@ -137,6 +151,36 @@ PAGES_B = [
             "Stage": {"type": "status", "status": {"name": "To do"}},
             "Deadline": {"type": "date", "date": {"start": "2035-01-01"}},
             "Epic": {"type": "relation", "relation": [{"id": RELATED_PAGE_ID}]},
+            "Topics": {
+                "type": "rollup",
+                "rollup": {
+                    "type": "array",
+                    "function": "show_original",
+                    "array": [
+                        {"type": "multi_select", "multi_select": [
+                            {"name": "Hardware"}, {"name": "E-ink"},
+                        ]},
+                        {"type": "multi_select", "multi_select": [
+                            {"name": "E-ink"}, {"name": "Firmware"},
+                        ]},
+                    ],
+                },
+            },
+            "Guests": {
+                "type": "rollup",
+                "rollup": {
+                    "type": "array",
+                    "function": "show_original",
+                    "array": [
+                        {"type": "relation", "has_more": False, "relation": [
+                            {"id": TOPIC_PAGE_IDS[0]}, {"id": TOPIC_PAGE_IDS[1]},
+                        ]},
+                        {"type": "relation", "has_more": False, "relation": [
+                            {"id": TOPIC_PAGE_IDS[1]}, {"id": TOPIC_PAGE_IDS[2]},
+                        ]},
+                    ],
+                },
+            },
         },
     }
 ]
@@ -145,6 +189,19 @@ RELATED_PAGE = {
     "object": "page",
     "id": RELATED_PAGE_ID,
     "properties": {"Name": {"type": "title", "title": [{"plain_text": "Migration epic"}]}},
+}
+
+TOPIC_PAGES = {
+    TOPIC_PAGE_IDS[0]: {
+        "object": "page",
+        "id": TOPIC_PAGE_IDS[0],
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "Ada Lovelace"}]}},
+    },
+    TOPIC_PAGE_IDS[1]: {
+        "object": "page",
+        "id": TOPIC_PAGE_IDS[1],
+        "properties": {"Name": {"type": "title", "title": [{"plain_text": "Grace Hopper"}]}},
+    },
 }
 
 SEARCH_A = [
@@ -265,5 +322,12 @@ def fake_urlopen(req: Request, *args: object, **kwargs: object) -> _Resp:
     if "/v1/pages/" in url:
         if RELATED_PAGE_ID in url:
             return _Resp(RELATED_PAGE)
+        for page_id, topic_page in TOPIC_PAGES.items():
+            if page_id in url:
+                return _Resp(topic_page)
+        if TOPIC_PAGE_IDS[2] in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(
+                json.dumps({"object": "error", "code": "object_not_found",
+                            "message": "Could not find page."}).encode()))
         return _Resp(PAGES[0])
     raise AssertionError(f"fake_notion got an unexpected request: {method} {url}")

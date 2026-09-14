@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Cards",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "kind": "widget",
   "description": "Records from any Notion database as a grid of bordered cards. Choose up to five columns to show on each card, each at its own size, with or without its name; how a column is drawn follows its Notion type. Filter by up to three column conditions, sort by any column, group under headings, cap the count. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-cards",
@@ -57,6 +57,17 @@
       "help": "Every card gets an equal share of the cell, so more records means smaller cards."
     },
     {
+      "name": "field_gap",
+      "type": "slider",
+      "label": "Space between properties",
+      "default": 0,
+      "min": 0,
+      "max": 5,
+      "step": 0.25,
+      "unit": "em",
+      "help": "Extra white space between one property and the next on every card, on top of the small gap always there. 0 keeps them tight; 5 is airy. Measured in em, so it scales with the cell's text."
+    },
+    {
       "name": "refresh_min",
       "type": "select",
       "label": "Refresh",
@@ -82,7 +93,7 @@
       "label": "Property 1",
       "default": "",
       "placeholder": "Name",
-      "help": "Type a Notion column name exactly (the Notion Core admin page's Inspect columns link lists them). How it is drawn follows its type: a checkbox as a checkbox, a select or status as badges, a date as a date, anything else as text. Leave every property blank to show just the title column. The two options below only apply once this is set."
+      "help": "Type a Notion column name exactly (the Notion Core admin page's Inspect columns link lists them). How it is drawn follows its type: a checkbox as a checkbox, a select or status as badges, a date as a date, a rollup that gathers several values as one line per value, anything else as text. Leave every property blank to show just the title column. The two options below only apply once this is set."
     },
     {
       "name": "prop1_size",
@@ -120,7 +131,7 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line, whatever this is set to."
     },
     {
       "name": "prop1_show_name",
@@ -172,7 +183,7 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line, whatever this is set to."
     },
     {
       "name": "prop2_show_name",
@@ -224,7 +235,7 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line, whatever this is set to."
     },
     {
       "name": "prop3_show_name",
@@ -276,7 +287,7 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line, whatever this is set to."
     },
     {
       "name": "prop4_show_name",
@@ -328,7 +339,7 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines."
+      "help": "For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line, whatever this is set to."
     },
     {
       "name": "prop5_show_name",
@@ -644,6 +655,11 @@
         "label": "Columns"
       },
       {
+        "name": "field_gap",
+        "type": "num",
+        "label": "Space between properties (em)"
+      },
+      {
         "name": "cards",
         "type": "arr",
         "label": "Cards"
@@ -776,7 +792,8 @@
       "condition": "",
       "sorted_by": [],
       "fetched_at": 1757500000,
-      "group_by": ""
+      "group_by": "",
+      "field_gap": 0
     }
   }
 }

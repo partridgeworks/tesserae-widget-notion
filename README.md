@@ -118,9 +118,10 @@ along, then title.
 |---|---|---|
 | **Columns** | 2 | Cards per row. Small cells cap it: 1 at xs, 2 at sm, 4 at md. |
 | **Max records shown** | 6 | Rows follow from this and Columns. Every row gets an equal share of the cell, so more records means shorter cards. |
+| **Space between properties** | 0 em | Extra white space between one property and the next on every card, 0–5 em, on top of the small gap always there. |
 | **Property 1 … 5** | blank | A Notion column name, exactly as spelled. Blank slots are skipped. With none set, cards show the title column. |
 | **Property N size** | M | XS, S, M, L or XL. Scales that field's text, badges, checkbox and name together. |
-| **Property N max lines** | 1 | For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. |
+| **Property N max lines** | 1 | For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line. |
 | **Property N: show field name** | off | Puts the column name above the value (beside it, for a checkbox). |
 | **Group by column** | blank | Cards collect under a heading per value, in sorted order; cards with nothing in the column go last under *No &lt;column&gt;*. A column with several values files the card under the first. |
 | **Filter 1–3: column** | blank | A column name; blank means that filter is unused. Every filter that names a column must hold. |
@@ -136,6 +137,7 @@ How a column is drawn:
 | date, created time, last edited time | a date (with the end date for a range, the time for a datetime) |
 | number | a number, in the column's Notion format (`75%`, `$1,200`) |
 | formula, rollup | whichever of the above its result is |
+| rollup that gathers several values | text, one value per line, flattened and de-duplicated (a rollup over a multi-select lists every tag once) |
 | anything else | text (people and relations as names, comma-separated) |
 
 A field that would be sliced off the bottom of a short card is hidden whole

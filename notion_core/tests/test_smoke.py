@@ -262,6 +262,28 @@ def test_prop_normalises_each_notion_property_type(app: Flask) -> None:
         assert core.prop(page, "NotThere") is None
 
 
+def test_rollup_relation_ids_reads_the_page_ids_a_rollup_gathers(app: Flask) -> None:
+    core = _core(app)
+    page = {
+        "properties": {
+            "Guests": {"type": "rollup", "rollup": {"type": "array", "array": [
+                {"type": "relation", "relation": [{"id": "p1"}, {"id": "p2"}]},
+                {"type": "multi_select", "multi_select": [{"name": "not a page"}]},
+                {"type": "relation", "relation": [{"id": "p2"}]},
+            ]}},
+            "Count": {"type": "rollup", "rollup": {"type": "number", "number": 3}},
+            "Epic": {"type": "relation", "relation": [{"id": "p9"}]},
+        }
+    }
+    with app.app_context():
+        assert core.rollup_relation_ids(page, "Guests") == ["p1", "p2", "p2"]
+        assert core.rollup_relation_ids(page, "Count") == []
+        assert core.rollup_relation_ids(page, "Epic") == []
+        assert core.rollup_relation_ids(page, "NotThere") == []
+        # The rollup value itself still normalises to the ids, nested.
+        assert core.prop(page, "Guests") == [["p1", "p2"], ["not a page"], ["p2"]]
+
+
 def test_page_title_finds_the_title_by_type_not_by_name(app: Flask) -> None:
     """Notion lets you rename the title column, so matching on "Name" is the
     one thing guaranteed to break on someone else's workspace."""

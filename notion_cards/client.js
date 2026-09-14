@@ -1,9 +1,10 @@
 // notion_cards. A grid of bordered cards, one per record, each stacking the
 // columns the cell asked for: a checkbox for a checkbox, badges for a select
-// or status, a formatted date, a number in its Notion format, and text for
-// everything else — each at the size the cell chose, wrapping to the lines
-// it allowed, with or without the column name above it. Optionally under a
-// heading per value of one column.
+// or status, a formatted date, a number in its Notion format, a rollup's
+// gathered values one per line, and text for everything else — each at the
+// size the cell chose, wrapping to the lines it allowed, with or without the
+// column name above it, and as far apart as the cell asked. Optionally under
+// a heading per value of one column.
 //
 // The border is the one place this family draws a line: it is what makes a
 // card a card. It is drawn at --stroke-1 (2px), the e-ink minimum, so it
@@ -22,6 +23,10 @@ const SIZE_EM = { xs: 0.72, s: 0.86, m: 1, l: 1.3, xl: 1.7 };
 
 // The most columns a cell size can carry before every card is a sliver.
 const COLUMN_ROOM = { xs: 1, sm: 2, md: 4, lg: 6 };
+
+// "Space between properties", in em, added to the gap a card always has
+// between its fields. The server clamps it too; this is the belt.
+const MAX_FIELD_GAP = 5;
 
 const CURRENCY = {
   dollar: "$", canadian_dollar: "CA$", australian_dollar: "A$", singapore_dollar: "S$",
@@ -66,6 +71,15 @@ function fieldHtml(f, lead) {
       (v) => `<span class="chip">${escapeHtml(v)}</span>`,
     );
     body = chips.length ? `<span class="f-badges">${chips.join("")}</span>` : "";
+  } else if (f.kind === "lines") {
+    // A rollup's gathered values, one per line. Every entry gets its line:
+    // the max-lines setting is a floor here, not a cap, and a card too
+    // short for them all gives lines up in fit() like any wrapped text.
+    const items = (Array.isArray(f.value) ? f.value : []).map((v) => escapeHtml(v));
+    const lines = Math.max(items.length, Number(f.lines) || 1);
+    body = items.length
+      ? `<span class="f-val is-wrap" style="-webkit-line-clamp:${lines}">${items.join("<br>")}</span>`
+      : "";
   } else {
     const text = f.kind === "date" ? dateText(f.value)
       : f.kind === "number" ? numberLabel(f.value)
@@ -110,6 +124,7 @@ export default function render(shadow, ctx) {
 
   const cards = Array.isArray(data.cards) ? data.cards : [];
   const cols = Math.max(1, Math.min(Number(data.columns) || 2, COLUMN_ROOM[size] ?? 6));
+  const fieldGap = Math.max(0, Math.min(MAX_FIELD_GAP, Number(data.field_gap) || 0));
   // With no grouping the whole thing is one unnamed section. A heading is a
   // full-width grid item, so every group starts on a fresh row.
   const sections = Array.isArray(data.groups) && data.groups.length
@@ -138,7 +153,8 @@ export default function render(shadow, ctx) {
       .card { position:relative; border: var(--stroke-1, 2px) solid var(--edge);
               border-radius: 0.5em; padding: var(--space-2) var(--space-3);
               display:flex; flex-direction:column; justify-content:flex-start;
-              gap: var(--space-1); min-width:0; min-height:0; overflow:hidden; }
+              gap: calc(var(--space-1) + ${fieldGap}em);
+              min-width:0; min-height:0; overflow:hidden; }
       /* Headings read as headings through weight, case and colour, not a
          rule, and they span the grid so each group starts a new row. */
       .group-head { grid-column: 1 / -1; display:flex; align-items:baseline;

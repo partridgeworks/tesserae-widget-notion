@@ -729,6 +729,29 @@ def project_label(
     return str(value).strip()
 
 
+def rollup_relation_ids(page_obj: dict[str, Any], name: str) -> list[str]:
+    """The page ids inside a rollup's gathered values, in order.
+
+    A rollup over a relation column arrives as an array whose entries are
+    each ``{"type": "relation", "relation": [{"id": …}, …]}``; the raw
+    property is read because the normalised value has already flattened
+    them to strings indistinguishable from any other text.
+    """
+    props = page_obj.get("properties")
+    raw = props.get(name) if isinstance(props, dict) else None
+    rollup = raw.get("rollup") if isinstance(raw, dict) else None
+    if not isinstance(rollup, dict) or rollup.get("type") != "array":
+        return []
+    ids: list[str] = []
+    for entry in rollup.get("array") or []:
+        if isinstance(entry, dict) and entry.get("type") == "relation":
+            ids.extend(
+                str(v.get("id") or "")
+                for v in entry.get("relation") or [] if isinstance(v, dict) and v.get("id")
+            )
+    return ids
+
+
 def relation_titles(
     account_id: str,
     pages: list[dict[str, Any]],
@@ -739,15 +762,21 @@ def relation_titles(
 ) -> dict[str, str]:
     """Resolve relation-target page ids to titles → {page_id: title}.
 
-    Only meaningful for a ``relation`` column; every other type already
-    carries names. Each id costs one request, so the walk is capped: past
-    the cap those rows fall back to no project name rather than turning one
-    render into dozens of round-trips.
+    Meaningful for a ``relation`` column, and for a ``rollup`` whose
+    gathered values are themselves relations (Episodes → Bookings → Topic,
+    where Topic is a relation to a Topics database): Notion hands those
+    back as page ids too. Every other type already carries names. Each id
+    costs one request, so the walk is capped: past the cap those rows fall
+    back to no name rather than turning one render into dozens of
+    round-trips.
     """
-    if not prop_name or kind != "relation":
+    if not prop_name or kind not in ("relation", "rollup"):
         return {}
     ids: list[str] = []
     for page_obj in pages:
+        if kind == "rollup":
+            ids.extend(rollup_relation_ids(page_obj, prop_name))
+            continue
         value = prop(page_obj, prop_name)
         if isinstance(value, list):
             ids.extend(str(v) for v in value if v)
