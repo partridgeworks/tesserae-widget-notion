@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, List",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "kind": "widget",
   "description": "Rows from any Notion database, one line each: title, status, date, person, and a progress bar where your database tracks one. Auto-detects which columns hold status, progress, date and person, so it works on your schema without configuration. Sort by any column. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-bullets",

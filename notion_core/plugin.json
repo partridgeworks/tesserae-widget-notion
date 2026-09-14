@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion Core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "kind": "data",
   "description": "Shared Notion connection for the notion_* widget family. Add one or more Notion accounts, each with a friendly name and its own integration token, on this plugin's admin page. Lists the databases each account can see and the property mapping each widget will use. No cell of its own.",
   "icon": "ph-notion-logo",
