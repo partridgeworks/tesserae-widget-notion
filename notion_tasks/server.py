@@ -33,6 +33,15 @@ ERR_NO_DATABASE = "Pick a Notion database in this cell's settings."
 # Tasks with no project still have to land somewhere when grouping is on.
 NO_PROJECT_LABEL = "No project"
 
+# What "Group by" can bucket on -- each a row field fed by a detected (or
+# overridden) column, so a cell that names its own Status column groups by
+# that one -- and the label for a task with nothing in that column.
+GROUP_COLUMNS: dict[str, str] = {
+    "project": NO_PROJECT_LABEL,
+    "status": "No status",
+    "priority": "No priority",
+}
+
 # Notion `select` priorities are free text, so map the names people actually
 # use onto a sortable rank. Anything unrecognised sorts below the named ones
 # rather than above, so an unmapped value can't jump the queue.
@@ -150,21 +159,38 @@ def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _group(items: list[dict[str, Any]], *, keep_order: bool = False) -> list[dict[str, Any]]:
-    """Bucket tasks by project → ``[{"name", "items", "overdue_count"}]``.
+def _group(
+    items: list[dict[str, Any]],
+    column: str,
+    *,
+    order: dict[str, int] | None = None,
+    sorted_by_column: bool = False,
+    keep_order: bool = False,
+) -> list[dict[str, Any]]:
+    """Bucket tasks by one row field → ``[{"name", "items", "overdue_count"}]``.
 
-    Group order follows the most urgent task in each group, using the same
-    sort key the flat list uses, so the project needing attention stays at
-    the top of the cell. Tasks with no project collect into one group that
-    is forced last: an unfiled task is the least interesting kind.
+    ``column`` is a key of ``GROUP_COLUMNS``. Tasks with nothing in it
+    collect into one group forced last: an unfiled task is the least
+    interesting kind. The rest are ordered by the first of these that
+    applies:
 
-    ``keep_order`` is for a cell that named its own sort column: the rows
-    arrive in that order already, so groups are emitted in order of first
-    appearance rather than re-ranked by urgency.
+    - ``sorted_by_column``: the cell sorted its rows by this very column,
+      so the groups come out in order of first appearance -- ascending or
+      descending, whichever the operator asked for.
+    - ``order``, the column's option arrangement in Notion (a select or a
+      status): that arrangement, the way a Notion board grouped by the
+      column shows it, whatever the rows themselves are sorted by.
+    - ``keep_order``, a cell sorted by some other column: first appearance,
+      so the groups follow the sort rather than being re-ranked.
+    - Otherwise the most urgent task in each group, using the flat list's
+      sort key, so the project needing attention stays at the top of the
+      cell. A priority column with no arrangement to follow (a number)
+      leads with the highest priority instead.
     """
+    empty_label = GROUP_COLUMNS[column]
     buckets: dict[str, list[dict[str, Any]]] = {}
     for item in items:
-        buckets.setdefault(item["project"] or NO_PROJECT_LABEL, []).append(item)
+        buckets.setdefault(item[column] or empty_label, []).append(item)
 
     groups = [
         {
@@ -174,10 +200,22 @@ def _group(items: list[dict[str, Any]], *, keep_order: bool = False) -> list[dic
         }
         for name, rows in buckets.items()
     ]
-    if keep_order:
-        groups.sort(key=lambda g: g["name"] == NO_PROJECT_LABEL)
-    else:
-        groups.sort(key=lambda g: (g["name"] == NO_PROJECT_LABEL, _sort_key(g["items"][0])))
+
+    def rank(group: dict[str, Any]) -> tuple[Any, ...]:
+        if group["name"] == empty_label:
+            return (1,)
+        first = group["items"][0]
+        if sorted_by_column:
+            return (0,)
+        if order is not None:
+            return (0, order.get(group["name"].strip().lower(), len(order)), _sort_key(first))
+        if keep_order:
+            return (0,)
+        if column == "priority":
+            return (0, -first["priority_rank"], _sort_key(first))
+        return (0, _sort_key(first))
+
+    groups.sort(key=rank)
     return groups
 
 
@@ -282,9 +320,17 @@ def fetch(
     }
     # Group the rows that survived the limit, not the whole set: the cell
     # shows `shown`, so grouping anything else would advertise groups whose
-    # tasks never appear.
-    if group_by == "project" and props["project"]:
-        result["groups"] = _group(shown, keep_order=bool(sorts))
+    # tasks never appear. No groups at all when the database has no such
+    # column: the flat list, not an empty grouping or an error.
+    group_column = props.get(group_by, "") if group_by in GROUP_COLUMNS else ""
+    if group_column:
+        result["groups"] = _group(
+            shown,
+            group_by,
+            order=core.option_order(schema_props, group_column),
+            sorted_by_column=bool(sorts) and sorts[0][0] == group_column,
+            keep_order=bool(sorts),
+        )
     with contextlib.suppress(OSError):
         result_path.write_text(json.dumps(result), encoding="utf-8")
     return result

@@ -79,19 +79,26 @@ export default function render(shadow, ctx) {
   // Grouping needs headers, and headers need vertical room; at xs a header
   // plus one task is the whole cell, so grouping there costs more than it
   // explains. The server only sends `groups` when the option is on AND the
-  // database actually has a project column.
+  // database actually has the column it groups by.
   const grouped = Array.isArray(data.groups) && data.groups.length > 0 && size !== "xs";
   // Headings can be switched off while grouping stays on: the tasks still
-  // arrive bucketed by project and in group order, they just run together as
-  // one list. That is the only combination where a row has to carry its own
-  // project name again, since nothing above it says which group it is in.
+  // arrive bucketed and in group order, they just run together as one list.
+  // That is the only combination where a row has to carry the grouped
+  // value again (its project name, its status chip), since nothing above
+  // it says which group it is in.
   const withHeaders = grouped && opts.show_group_header !== false;
+  // Which value the headings state, so the rows under them can drop it.
+  const headedBy = withHeaders ? (data.group_by || "project") : "";
 
   function taskRow(item, zebra) {
     const dot = PRIO_COLOR[item.priority_rank] || PRIO_COLOR[0];
     const meta = [];
 
-    if (showStatus && item.status) {
+    // Under a heading the grouped value is stated directly above, so
+    // repeating it per row is noise: no status chip under status headings,
+    // no project name under project headings. Priority has no text of its
+    // own on a row -- the dot colour carries it -- so nothing to drop.
+    if (showStatus && item.status && headedBy !== "status") {
       meta.push(`<span class="chip">${escapeHtml(item.status)}</span>`);
     }
     if (showDue && item.due_date) {
@@ -102,10 +109,7 @@ export default function render(shadow, ctx) {
           : "";
       meta.push(`<span style="${style}">${dateLabel(item.due_date, { today: item.today })}</span>`);
     }
-    // Under a heading the project name is stated directly above, so
-    // repeating it per row is noise. With headings off it is the only thing
-    // that tells the rows apart, so it comes back.
-    if (showProject && !withHeaders && item.project) {
+    if (showProject && item.project && headedBy !== "project") {
       meta.push(`<span class="u-muted">${escapeHtml(item.project)}</span>`);
     }
 

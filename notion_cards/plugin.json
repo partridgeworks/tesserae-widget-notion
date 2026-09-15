@@ -1,7 +1,7 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Cards",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "kind": "widget",
   "description": "Records from any Notion database as a grid of bordered cards. Choose up to five columns to show on each card, each at its own size, with or without its name; how a column is drawn follows its Notion type. Filter by up to three column conditions, sort by any column, group under headings, cap the count. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-cards",

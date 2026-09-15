@@ -8,7 +8,8 @@ the self-hosted e-ink dashboard server.
 ## What it does
 
 **Notion, Tasks** — your open tasks, overdue first, with due date, status and
-project. Optionally grouped under a heading per project. The one widget here
+project. Optionally grouped under a heading per project, status or
+priority. The one widget here
 that assumes what its rows *are*: things to be done.
 
 ![Open tasks grouped under project headings](screenshot-tasks.png)
@@ -86,8 +87,8 @@ per-cell, in the normal widget options.
 | Option | Default | What it does |
 |---|---|---|
 | **Max tasks shown** | 8 | Upper bound; smaller cells show fewer. |
-| **Group by** | No grouping | `Project` buckets tasks under a heading per project. |
-| **Show group headings** | on | Off keeps the grouping and ordering but drops the heading rows; each row then shows its own project name instead. |
+| **Group by** | No grouping | `Project`, `Status` or `Priority` buckets tasks under a heading per value of that column, using the detected column or the one the matching **… column** option names. Tasks with nothing in the column go last, under *No project* / *No status* / *No priority*. |
+| **Show group headings** | on | Off keeps the grouping and ordering but drops the heading rows; each row then shows its own project name or status chip instead. |
 | **Show due dates** | on | |
 | **Show project names** | on | |
 | **Show status chips** | on | |
@@ -95,8 +96,14 @@ per-cell, in the normal widget options.
 | **… column** (×5) | auto | Override a detected column. Leave blank unless a guess is wrong. |
 
 Default order: overdue first, then soonest due, then priority, then title.
-With a **Sort by column** set, that column decides instead, and grouping
-follows the first task of each project rather than re-ranking by urgency.
+With a **Sort by column** set, that column decides instead.
+
+Group order: a status or select column's groups come in the order its
+options are arranged in Notion, the same order a Notion board grouped by it
+shows, whatever the rows are sorted by; sorting by that very column,
+descending, reverses them. Otherwise groups follow the first task of each
+group when a sort column is set, and the most urgent task in each group when
+it is not, so the project needing attention stays at the top.
 
 ### Notion, List
 

@@ -1,9 +1,9 @@
 {
   "tesserae_compat": "1.x",
   "name": "Notion, Tasks",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "kind": "widget",
-  "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Sort by any column. Supports several Notion accounts. Requires the Notion Core plugin.",
+  "description": "Open tasks from any Notion database, overdue first, with due dates, status and project, optionally grouped under project, status or priority headers. Auto-detects which columns hold status, due date, priority and project, so it works on your schema without configuration. Sort by any column. Supports several Notion accounts. Requires the Notion Core plugin.",
   "icon": "ph-list-checks",
   "supports": {
     "sizes": [
@@ -93,16 +93,24 @@
         {
           "value": "project",
           "label": "Project"
+        },
+        {
+          "value": "status",
+          "label": "Status"
+        },
+        {
+          "value": "priority",
+          "label": "Priority"
         }
       ],
-      "help": "Group tasks under a header row per project, using the Project column (auto-detected, or whatever the Project column option names). Tasks with no project collect under 'No project', last."
+      "help": "Group tasks under a header row per value of that column (auto-detected, or whatever the matching '\u2026 column' option below names). A status or select column's groups come in the order its options are arranged in Notion, the same order a Notion board grouped by it shows. Tasks with nothing in the column collect under 'No project' / 'No status' / 'No priority', last."
     },
     {
       "name": "show_group_header",
       "type": "boolean",
       "label": "Show group headings",
       "default": true,
-      "help": "Only applies when Group by is set to Project. Turn it off to keep tasks bucketed and ordered by project without heading rows \u2014 each row then shows its own project name instead."
+      "help": "Only applies when Group by is set. Turn it off to keep tasks bucketed and ordered by the group without heading rows \u2014 each row then shows its own project name or status chip instead."
     },
     {
       "name": "show_due",
@@ -271,7 +279,7 @@
       {
         "name": "groups",
         "type": "arr",
-        "label": "Tasks grouped by project"
+        "label": "Tasks grouped by the Group by column"
       },
       {
         "name": "filtered_by",

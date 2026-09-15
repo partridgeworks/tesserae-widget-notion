@@ -1,4 +1,4 @@
-"""notion_tasks: renders at every size, groups by project, honours accounts."""
+"""notion_tasks: renders at every size, groups by project, status or priority, honours accounts."""
 
 from __future__ import annotations
 
@@ -149,6 +149,74 @@ def test_grouping_is_skipped_when_the_database_has_no_project_column(
     configure_one_account(app)
     _write_stale_schema(app, ACCOUNT_A, DS_ID, {"Name": {"type": "title"}})
     data = cell_data(render(client, PLUGIN, "lg", group_by="project"))
+    assert not data.get("error"), data.get("error")
+    assert "groups" not in data
+    assert data["items"]
+
+
+def test_group_by_status_follows_notions_group_order(app: Flask, client: FlaskClient) -> None:
+    """Status groups come in the order Notion arranges the status (To-do,
+    In progress, Complete), the way a board grouped by it shows; within a
+    group the tasks keep the urgency order. A task's status chip is then
+    the heading's job, which the client handles."""
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", group_by="status", show_completed=True))
+    assert [g["name"] for g in data["groups"]] == ["To do", "In progress", "Done"]
+    assert [i["title"] for i in data["groups"][0]["items"]] == [
+        "Write the Notion widget README",     # soonest due
+        "Unfiled odd job",
+        "Renew the domain",                   # undated
+    ]
+    assert data["group_by"] == "status"
+
+
+def test_group_by_priority_follows_notions_option_order(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", group_by="priority"))
+    assert [g["name"] for g in data["groups"]] == ["High", "Medium", "Low", "No priority"]
+    assert [i["title"] for i in data["groups"][-1]["items"]] == ["Unfiled odd job"]
+
+
+def test_option_order_beats_the_row_sort_unless_the_sort_is_that_column(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Sorted by Name, the rows would put "Write…" (To do) before "Fix…"
+    (In progress) and "Ship…" (Done) last: first appearance would happen to
+    match here, so sort Z→A to prove the arrangement is what decides."""
+    configure_one_account(app)
+    by_name = cell_data(render(
+        client, PLUGIN, "lg", group_by="status", show_completed=True,
+        sort_prop="Name", sort_dir="desc",
+    ))
+    assert [g["name"] for g in by_name["groups"]] == ["To do", "In progress", "Done"]
+    # Sorting by the status column itself, descending, asks for the reverse.
+    by_status = cell_data(render(
+        client, PLUGIN, "lg", group_by="status", show_completed=True,
+        sort_prop="Status", sort_dir="desc",
+    ))
+    assert [g["name"] for g in by_status["groups"]] == ["Done", "In progress", "To do"]
+
+
+def test_group_by_uses_the_overridden_column(app: Flask, client: FlaskClient) -> None:
+    """Point the Priority column option at Status: grouping by Priority
+    must bucket by that column, not by the auto-detected one."""
+    configure_one_account(app)
+    data = cell_data(render(
+        client, PLUGIN, "lg", group_by="priority", priority_prop="Status", show_completed=True
+    ))
+    assert not data.get("error"), data.get("error")
+    assert data["detected"]["priority"] == "Status"
+    assert [g["name"] for g in data["groups"]] == ["To do", "In progress", "Done"]
+
+
+def test_grouping_is_skipped_when_the_database_has_no_status_column(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    _write_stale_schema(app, ACCOUNT_A, DS_ID, {"Name": {"type": "title"}})
+    data = cell_data(render(client, PLUGIN, "lg", group_by="status"))
     assert not data.get("error"), data.get("error")
     assert "groups" not in data
     assert data["items"]
