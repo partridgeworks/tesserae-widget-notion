@@ -180,7 +180,7 @@ def fetch(
         return {"error": err or "Couldn't load rows from Notion.", "title": title}
 
     pages = core.apply_person_filter(pages, schema_props, flt)
-    pages = core.sort_pages(pages, sorts)
+    pages = core.sort_pages(pages, sorts, schema_props)
     today = date.today().isoformat()
     items = [_row(p, core, props, schema_props, today) for p in pages]
     if not show_completed:

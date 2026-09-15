@@ -371,6 +371,80 @@ def test_sort_by_a_list_column_uses_its_first_entry(app: Flask) -> None:
     ]
 
 
+def _select_row(name: str) -> dict:
+    return {"properties": {"S": {"type": "select", "select": {"name": name} if name else None}}}
+
+
+def test_sort_by_a_select_column_follows_notions_option_order(app: Flask) -> None:
+    """The option arrangement in Notion is the order Notion sorts and groups
+    by, so it is the order the widgets sort by: Today before This Week
+    before Next Week, not the alphabet's Next, This M, This W."""
+    core = _core(app)
+    schema = {"S": {"type": "select", "select": {"options": [
+        {"id": "1", "name": "Today"}, {"id": "2", "name": "This Week"},
+        {"id": "3", "name": "Next Week"}, {"id": "4", "name": "This Month"},
+    ]}}}
+    rows = [_select_row(n) for n in
+            ("This Month", "", "Next Week", "Today", "Someday", "This Week")]
+    asc = [core.prop(p, "S") for p in core.sort_pages(rows, [("S", False)], schema)]
+    # An option the schema doesn't list (added since the layout was cached)
+    # goes after every listed one; blanks stay last either way.
+    assert asc == ["Today", "This Week", "Next Week", "This Month", "Someday", ""]
+    desc = [core.prop(p, "S") for p in core.sort_pages(rows, [("S", True)], schema)]
+    assert desc == ["Someday", "This Month", "Next Week", "This Week", "Today", ""]
+    # Without a schema there is nothing better than the alphabet.
+    alpha = [core.prop(p, "S") for p in core.sort_pages(rows, [("S", False)])]
+    assert alpha == ["Next Week", "Someday", "This Month", "This Week", "Today", ""]
+
+
+def test_sort_by_a_status_column_walks_its_groups(app: Flask) -> None:
+    """Notion orders a status by group (To-do, In progress, Complete), then
+    by position inside the group; the options list itself is in no
+    particular order. An option in no group comes after the grouped ones."""
+    core = _core(app)
+    schema = {"S": {"type": "status", "status": {
+        "options": [
+            {"id": "c", "name": "Shipped"}, {"id": "a", "name": "Backlog"},
+            {"id": "b", "name": "Building"}, {"id": "d", "name": "Blocked"},
+            {"id": "a2", "name": "Ready"},
+        ],
+        "groups": [
+            {"id": "g1", "name": "To-do", "option_ids": ["a", "a2"]},
+            {"id": "g2", "name": "In progress", "option_ids": ["b"]},
+            {"id": "g3", "name": "Complete", "option_ids": ["c"]},
+        ],
+    }}}
+    rows = [{"properties": {"S": {"type": "status", "status": {"name": n}}}}
+            for n in ("Shipped", "Blocked", "Building", "Ready", "Backlog")]
+    ordered = [core.prop(p, "S") for p in core.sort_pages(rows, [("S", False)], schema)]
+    assert ordered == ["Backlog", "Ready", "Building", "Shipped", "Blocked"]
+
+
+def test_option_order_is_only_for_option_columns(app: Flask) -> None:
+    core = _core(app)
+    schema = {
+        "T": {"type": "title"},
+        "M": {"type": "multi_select", "multi_select": {"options": [
+            {"id": "1", "name": "Zeta"}, {"id": "2", "name": "Alpha"},
+        ]}},
+        "Bare": {"type": "select"},
+    }
+    assert core.option_order(schema, "T") is None
+    assert core.option_order(None, "M") is None
+    assert core.option_order(schema, "M") == {"zeta": 0, "alpha": 1}
+    # A select the cached layout lists no options for still sorts, by text.
+    assert core.option_order(schema, "Bare") is None
+    rows = [
+        {"properties": {"M": {"type": "multi_select", "multi_select": [{"name": "Alpha"}]}}},
+        {"properties": {"M": {"type": "multi_select",
+                              "multi_select": [{"name": "Zeta"}, {"name": "Alpha"}]}}},
+    ]
+    # A list still sorts by its first entry, now ranked by the arrangement.
+    assert [core.prop(p, "M") for p in core.sort_pages(rows, [("M", False)], schema)] == [
+        ["Zeta", "Alpha"], ["Alpha"],
+    ]
+
+
 def test_notion_sorts_only_for_types_notion_can_sort(app: Flask) -> None:
     core = _core(app)
     schema = {"Due": {"type": "date"}, "Epic": {"type": "relation"}}

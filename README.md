@@ -74,7 +74,7 @@ per-cell, in the normal widget options.
 | **Database** | — | Which Notion database to read. Required. |
 | **Title** | per widget | Heading shown on the cell. |
 | **Refresh** | 15 min | How often to re-query Notion. |
-| **Sort by column** | blank | A Notion column name. Blank keeps the widget's own order (see below). Rows with nothing in that column go last either way. |
+| **Sort by column** | blank | A Notion column name. Blank keeps the widget's own order (see below). A select, multi-select or status column sorts in the order its options are arranged in Notion (drag them in the column's settings), the same order a view grouped by it shows. Rows with nothing in that column go last either way. |
 | **Sort direction** | Ascending | |
 | **Then sort by column** | blank | Breaks ties in the first sort. Same rules. |
 | **Then sort direction** | Ascending | |
@@ -252,8 +252,11 @@ each need one label, so the first entry wins, in Notion's own order.
 **What it fetches.** Up to 500 rows per refresh. Sorted by Notion itself when
 the sort column is a type Notion can sort (text, number, select, status, date,
 checkbox, URL, timestamps), so the 500 are the right 500; other types are
-sorted after the fetch. Database lists are cached for an hour, column layouts
-for 15 minutes, results for your chosen Refresh interval.
+sorted after the fetch. Select, multi-select and status columns sort by the
+option order in the cached column layout, so an option you have just added
+or moved can take up to 15 minutes to sort into place. Database lists are
+cached for an hour, column layouts for 15 minutes, results for your chosen
+Refresh interval.
 
 **How person filtering works.** Notion's people filter takes a user *id*, not
 a name, and `GET /v1/users` is forbidden to personal access tokens — so a

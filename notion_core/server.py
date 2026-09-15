@@ -1172,13 +1172,65 @@ def notion_sorts(
     return out or None
 
 
-def sort_value(page_obj: dict[str, Any], name: str) -> tuple[int, Any] | None:
+# Column types whose values are options the operator arranged by hand in
+# Notion. Sorting one of these means that arrangement, not the alphabet: a
+# select of Today / This Week / Next Week / This Month is in that order for
+# a reason, and it is the order Notion itself sorts and groups by.
+OPTION_TYPES = frozenset({"select", "multi_select", "status"})
+
+
+def option_order(schema_props: dict[str, Any] | None, name: str) -> dict[str, int] | None:
+    """Notion's arrangement of a column's options → ``{name: position}``,
+    keyed the way ``sort_value`` compares text (stripped, lowercased).
+
+    None when the column is not an option column, or the schema is unknown,
+    so the caller falls back to comparing the text. A status column's
+    options belong to groups (To-do, In progress, Complete) and Notion
+    orders by group first, then by position within the group, so the walk
+    goes group by group; an option in no group comes after, in list order.
+    An option the schema doesn't list at all -- added since the layout was
+    cached -- ranks after every listed one.
+    """
+    kind = prop_type(schema_props, name)
+    if kind not in OPTION_TYPES or schema_props is None:
+        return None
+    spec = schema_props[name].get(kind)
+    if not isinstance(spec, dict):
+        return None
+    options = [o for o in spec.get("options") or [] if isinstance(o, dict)]
+    by_id = {str(o.get("id") or ""): o for o in options if o.get("id")}
+    ordered: list[dict[str, Any]] = []
+    placed: set[str] = set()
+    for group in spec.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        for option_id in group.get("option_ids") or []:
+            option = by_id.get(str(option_id))
+            if option is not None and str(option_id) not in placed:
+                ordered.append(option)
+                placed.add(str(option_id))
+    ordered.extend(o for o in options if str(o.get("id") or "") not in placed)
+    out: dict[str, int] = {}
+    for option in ordered:
+        key = str(option.get("name") or "").strip().lower()
+        if key and key not in out:
+            out[key] = len(out)
+    return out
+
+
+def sort_value(
+    page_obj: dict[str, Any], name: str, order: dict[str, int] | None = None
+) -> tuple[int, Any] | None:
     """One property as a comparable key, or None when it is empty.
 
     Notion values of different types can't be compared with each other (a
     formula column can yield a number on one row and text on another), so
     the key leads with a type rank: booleans, then numbers, then dates,
     then text. A list sorts by its first entry, in Notion's own order.
+
+    ``order`` is the column's option arrangement (see ``option_order``):
+    with one, text ranks by its position in it rather than alphabetically,
+    ties and unlisted values falling back to the text.
     """
     value = prop(page_obj, name)
     while isinstance(value, list):
@@ -1192,13 +1244,16 @@ def sort_value(page_obj: dict[str, Any], name: str) -> tuple[int, Any] | None:
     if isinstance(value, dict):
         start = str(value.get("start") or "")
         return (2, start) if start else None
-    return (3, str(value).strip().lower())
+    text = str(value).strip().lower()
+    if order is not None:
+        return (3, order.get(text, len(order)), text)
+    return (3, text)
 
 
 def _sort_once(
-    pages: list[dict[str, Any]], column: str, descending: bool
+    pages: list[dict[str, Any]], column: str, descending: bool, order: dict[str, int] | None
 ) -> list[dict[str, Any]]:
-    keyed = [(sort_value(p, column), p) for p in pages]
+    keyed = [(sort_value(p, column, order), p) for p in pages]
     valued = [(k, p) for k, p in keyed if k is not None]
     empties = [p for k, p in keyed if k is None]
     valued.sort(key=lambda pair: pair[0], reverse=descending)
@@ -1206,15 +1261,21 @@ def _sort_once(
 
 
 def sort_pages(
-    pages: list[dict[str, Any]], sorts: list[tuple[str, bool]]
+    pages: list[dict[str, Any]],
+    sorts: list[tuple[str, bool]],
+    schema_props: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Stable multi-column sort. Rows with no value in a column go last for
     that column either way: a blank isn't the biggest or the smallest, it's
     the least interesting. Applied secondary-first so ties in the primary
     keep the secondary's order.
+
+    Pass the schema so a select, multi-select or status column sorts in
+    the order its options are arranged in Notion; without it such a column
+    can only be sorted alphabetically, which is not what Notion shows.
     """
     for column, descending in reversed(sorts):
-        pages = _sort_once(pages, column, descending)
+        pages = _sort_once(pages, column, descending, option_order(schema_props, column))
     return list(pages)
 
 

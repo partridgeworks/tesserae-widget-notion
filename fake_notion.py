@@ -44,9 +44,30 @@ OTHER_NAME = "Someone Else"
 
 SCHEMA: dict[str, Any] = {
     "Name": {"type": "title"},
-    "Status": {"type": "status"},
+    # A status's options belong to groups, and Notion sorts by group first
+    # then by position within the group. The options list is deliberately
+    # NOT in that order, so a widget that reads the list, or the alphabet,
+    # instead of the groups gets caught.
+    "Status": {"type": "status", "status": {
+        "options": [
+            {"id": "st-done", "name": "Done", "color": "green"},
+            {"id": "st-todo", "name": "To do", "color": "default"},
+            {"id": "st-prog", "name": "In progress", "color": "blue"},
+        ],
+        "groups": [
+            {"id": "g-todo", "name": "To-do", "color": "gray", "option_ids": ["st-todo"]},
+            {"id": "g-prog", "name": "In progress", "color": "blue", "option_ids": ["st-prog"]},
+            {"id": "g-done", "name": "Complete", "color": "green", "option_ids": ["st-done"]},
+        ],
+    }},
     "Due": {"type": "date"},
-    "Priority": {"type": "select"},
+    # Arranged High, Medium, Low in Notion. The alphabet says High, Low,
+    # Medium, which is what the widgets showed before they read the options.
+    "Priority": {"type": "select", "select": {"options": [
+        {"id": "pr-high", "name": "High", "color": "red"},
+        {"id": "pr-med", "name": "Medium", "color": "yellow"},
+        {"id": "pr-low", "name": "Low", "color": "gray"},
+    ]}},
     "Project": {"type": "multi_select"},
     "Progress": {"type": "number", "number": {"format": "percent"}},
     "Owner": {"type": "people"},

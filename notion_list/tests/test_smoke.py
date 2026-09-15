@@ -127,6 +127,19 @@ def test_sort_by_a_number_column_descending(app: Flask, client: FlaskClient) -> 
     assert [i["progress"] for i in data["items"]] == [0.75, 0.4, 0.1, 0.0]
 
 
+def test_sort_by_a_select_column_uses_notions_option_order(
+    app: Flask, client: FlaskClient
+) -> None:
+    _configure(app)
+    data = cell_data(_render(client, "lg", sort_prop="Priority"))
+    assert [i["title"] for i in data["items"]] == [
+        "Fix the panel refresh loop",         # High
+        "Write the Notion widget README",     # Medium
+        "Renew the domain",                   # Low
+        "Unfiled odd job",                    # no priority
+    ]
+
+
 def test_sort_by_a_missing_column_says_so(app: Flask, client: FlaskClient) -> None:
     _configure(app)
     data = cell_data(_render(client, "lg", sort_prop="Priorty"))

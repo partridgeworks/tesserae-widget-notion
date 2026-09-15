@@ -377,6 +377,39 @@ def test_sort_by_a_column_replaces_the_urgency_order(app: Flask, client: FlaskCl
     assert data["sorted_by"] == ["Name"]
 
 
+def test_sort_by_a_select_column_uses_notions_option_order(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Priority is arranged High, Medium, Low in Notion, and that is the
+    order a kanban grouped by it shows; the cell must match it rather than
+    the alphabet's High, Low, Medium. Blank goes last either way."""
+    configure_one_account(app)
+    asc = cell_data(render(client, PLUGIN, "lg", sort_prop="Priority"))
+    assert [i["title"] for i in asc["items"]] == [
+        "Fix the panel refresh loop",         # High
+        "Write the Notion widget README",     # Medium
+        "Renew the domain",                   # Low
+        "Unfiled odd job",                    # no priority
+    ]
+    desc = cell_data(render(client, PLUGIN, "lg", sort_prop="Priority", sort_dir="desc"))
+    assert [i["title"] for i in desc["items"]] == [
+        "Renew the domain",
+        "Write the Notion widget README",
+        "Fix the panel refresh loop",
+        "Unfiled odd job",
+    ]
+
+
+def test_sort_by_a_status_column_uses_notions_group_order(
+    app: Flask, client: FlaskClient
+) -> None:
+    configure_one_account(app)
+    data = cell_data(render(client, PLUGIN, "lg", sort_prop="Status", show_completed=True))
+    assert [i["status"] for i in data["items"]] == [
+        "To do", "To do", "To do", "In progress", "Done",
+    ]
+
+
 def test_sort_by_a_column_keeps_groups_in_that_order(app: Flask, client: FlaskClient) -> None:
     """With an explicit sort the groups follow it too, rather than being
     re-ranked by urgency: the operator asked for that order, so the first

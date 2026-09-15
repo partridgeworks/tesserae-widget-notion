@@ -361,7 +361,7 @@ def fetch(
     today = date.today().isoformat()
     pages = core.apply_person_filter(pages, schema_props, flt)
     pages = core.apply_conditions(pages, conditions, today=today)
-    pages = core.sort_pages(pages, sorts)
+    pages = core.sort_pages(pages, sorts, schema_props)
     shown = pages[:limit]
 
     # Relation columns hold page ids, and so does a rollup that reaches a

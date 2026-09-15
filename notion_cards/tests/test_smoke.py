@@ -362,14 +362,16 @@ def test_sort_by_any_column_either_way(app: Flask, client: FlaskClient) -> None:
 
 
 def test_second_sort_breaks_ties_in_the_first(app: Flask, client: FlaskClient) -> None:
+    """Status sorts in Notion's group order (To-do, In progress, Complete),
+    not alphabetically; the second sort settles the ties within a status."""
     configure_one_account(app)
     data = _cards(client, sort_prop="Status", sort2_prop="Name", sort2_dir="desc")
     assert [c["title"] for c in data["cards"]] == [
-        "Ship the deploy script",             # Done
-        "Fix the panel refresh loop",         # In progress
         "Write the Notion widget README",     # To do, Z→A
         "Unfiled odd job",
         "Renew the domain",
+        "Fix the panel refresh loop",         # In progress
+        "Ship the deploy script",             # Done
     ]
     assert data["sorted_by"] == ["Status", "Name"]
 

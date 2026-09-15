@@ -247,7 +247,7 @@ def fetch(
 
     relation_names = core.relation_titles(account_id, pages, props["project"], project_kind)
     pages = core.apply_person_filter(pages, schema_props, flt)
-    pages = core.sort_pages(pages, sorts)
+    pages = core.sort_pages(pages, sorts, schema_props)
     today = date.today().isoformat()
     items = [
         _row(p, core, props, schema_props, project_kind, relation_names, today) for p in pages
