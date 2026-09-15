@@ -411,8 +411,19 @@ def test_group_by_a_status_column(app: Flask, client: FlaskClient) -> None:
         "To do": ["Renew the domain", "Unfiled odd job", "Write the Notion widget README"],
         "Done": ["Ship the deploy script"],
     }
-    # Group order follows the sort: the first card's group comes first.
-    assert [g["name"] for g in data["groups"]] == ["In progress", "To do", "Done"]
+    # A status's groups come in Notion's arrangement (To-do, In progress,
+    # Complete), not in the order the sort happens to surface them.
+    assert [g["name"] for g in data["groups"]] == ["To do", "In progress", "Done"]
+
+
+def test_sorting_by_the_grouped_column_itself_orders_the_groups(
+    app: Flask, client: FlaskClient
+) -> None:
+    """Sorted by the status column, descending, the groups follow the
+    cards: that is the one case where the sort outranks the arrangement."""
+    configure_one_account(app)
+    data = _cards(client, group_prop="Status", sort_prop="Status", sort_dir="desc")
+    assert [g["name"] for g in data["groups"]] == ["Done", "In progress", "To do"]
 
 
 def test_grouping_files_a_multi_valued_column_under_its_first_value_and_empties_last(

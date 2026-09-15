@@ -132,7 +132,7 @@ along, then title.
 | **Property N size** | M | XS, S, M, L or XL. Scales that field's text, badges, checkbox and name together. |
 | **Property N max lines** | 1 | For text. 1 keeps it to one line, cut with an ellipsis; more lets it wrap, up to that many lines. A rollup that gathers several values always lists them one per line. |
 | **Property N: show field name** | off | Puts the column name above the value (beside it, for a checkbox). |
-| **Group by column** | blank | Cards collect under a heading per value, in sorted order; cards with nothing in the column go last under *No &lt;column&gt;*. A column with several values files the card under the first. |
+| **Group by column** | blank | Cards collect under a heading per value. A select or status column's headings come in the order its options are arranged in Notion (sorting by that very column, descending, reverses them); any other column's follow the sort. Cards with nothing in the column go last under *No &lt;column&gt;*. A column with several values files the card under the first. |
 | **Filter 1–3: column** | blank | A column name; blank means that filter is unused. Every filter that names a column must hold. |
 | **Filter 1–3: condition** | is | is / is not / is one of / is not one of / contains / does not contain / is empty / is not empty / greater than / at least / less than / at most. |
 | **Filter 1–3: value** | — | Matched case-insensitively. *Is one of* takes a comma-separated list (`This Week, Next Week, This Quarter`); a multi-select matches on any of its tags. Dates take `2026-09-30`, a month `2026-09`, or `today`. A checkbox takes `yes` or `no`. |

@@ -280,16 +280,34 @@ def _group_label(
 
 
 def _group(
-    cards: list[dict[str, Any]], labels: list[str], column: str
+    cards: list[dict[str, Any]],
+    labels: list[str],
+    column: str,
+    *,
+    order: dict[str, int] | None = None,
+    sorted_by_column: bool = False,
 ) -> list[dict[str, Any]]:
-    """Bucket cards by label, in order of first appearance so a sort is
-    respected; cards with nothing in the column collect last."""
+    """Bucket cards by label → ``[{"name", "cards"}]``.
+
+    Cards with nothing in the column collect last. The rest follow the
+    same precedence the tasks widget uses: sorted by the grouped column
+    itself, groups come in order of first appearance (ascending or
+    descending, as asked); a select or status column otherwise comes in
+    the order its options are arranged in Notion, the way a board grouped
+    by it shows, whatever the cards are sorted by; any other column in
+    order of first appearance, so a sort is respected.
+    """
     empty_name = f"No {column}"
     buckets: dict[str, list[dict[str, Any]]] = {}
     for card, label in zip(cards, labels, strict=True):
         buckets.setdefault(label or empty_name, []).append(card)
     groups = [{"name": name, "cards": rows} for name, rows in buckets.items()]
-    groups.sort(key=lambda g: g["name"] == empty_name)
+    if order is not None and not sorted_by_column:
+        groups.sort(key=lambda g: (
+            g["name"] == empty_name, order.get(g["name"].strip().lower(), len(order)),
+        ))
+    else:
+        groups.sort(key=lambda g: g["name"] == empty_name)
     return groups
 
 
@@ -398,7 +416,11 @@ def fetch(
     if group_prop:
         labels = [_group_label(p, core, group_prop, relation_names.get(group_prop, {}))
                   for p in shown]
-        result["groups"] = _group(cards, labels, group_prop)
+        result["groups"] = _group(
+            cards, labels, group_prop,
+            order=core.option_order(schema_props, group_prop),
+            sorted_by_column=bool(sorts) and sorts[0][0] == group_prop,
+        )
     with contextlib.suppress(OSError):
         result_path.write_text(json.dumps(result), encoding="utf-8")
     return result
