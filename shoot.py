@@ -105,6 +105,10 @@ def main() -> int:
                     {"group_by": "project", "show_group_header": False},
                     "-grouped-noheads",
                 ),
+                # Completed tasks included so the Done group appears and the
+                # status headings are seen to follow Notion's arrangement.
+                ("notion_tasks", {"group_by": "status", "show_completed": True}, "-grouped-status"),
+                ("notion_tasks", {"group_by": "priority"}, "-grouped-priority"),
                 ("notion_list", {}, ""),
                 ("notion_list", {"sort_prop": "Name", "sort_dir": "desc"}, "-sorted"),
                 (

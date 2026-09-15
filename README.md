@@ -14,6 +14,8 @@ that assumes what its rows *are*: things to be done.
 
 ![Open tasks grouped under project headings](screenshot-tasks.png)
 
+![Open tasks grouped under status headings, in the order the statuses are arranged in Notion](screenshot-tasks-status.png)
+
 **Notion, List** — one line per row of any database: title, status, date,
 person, and a progress bar where the database tracks one. Completed rows are
 left out by default.
